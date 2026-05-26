@@ -47,8 +47,10 @@ Phase F: Observabilidad ──── all services running ────
 - Archivo `.env.example` con variables de entorno
 - Script `scripts/seed-warehouse.sql` con datos semilla
 
+**Regla global (aplica a todas las fases):** Las capas `domain/` y `application/` deben tener **cero imports de framework** (ni `org.springframework.*`, ni `jakarta.*`, ni `io.jsonwebtoken.*`, ni `@Entity`, `@Table`, `@Id`, `@Column`). Esto se verifica en code review antes de mergear.
+
 **Verificación:**
-```
+```bash
 docker compose up
 docker compose ps  # Todos los servicios "running"
 ```
@@ -59,12 +61,25 @@ docker compose ps  # Todos los servicios "running"
 **Responsable:** Integrante 2
 
 **Entregables:**
-- Proyecto Spring Boot con:
-  - `User` entity (id, username, password_hash, role) persistido en PostgreSQL auth_db
+- Proyecto Spring Boot con arquitectura hexagonal purista:
+
+  **domain/** (sin imports de framework):
+  - `User` — POJO puro (id: String, username: String, passwordHash: String, role: Role)
+  - `Role` — enum (OPERATOR, ADMIN)
+  - `UserAlreadyExistsException` — excepción de dominio
+
+  **application/** (sin imports de framework):
+  - Puertos de entrada: `RegisterUseCase`, `LoginUseCase`, `ValidateTokenUseCase`
+  - Puertos de salida: `UserRepositoryPort`, `TokenServicePort`
+  - Servicio: `AuthApplicationService` — orquesta puertos sin imports framework
+
+  **infrastructure/** (todo el framework permitido aquí):
   - `AuthController` (POST /api/auth/register, POST /api/auth/login, POST /api/auth/validate)
-  - `JwtService` — genera y valida tokens JWT con HMAC-SHA256
-  - `AuthService` — registro con BCrypt, login con validación de credenciales
-  - Endpoint `/api/auth/validate` (uso interno) — recibe JWT en header Authorization, devuelve 200 + X-Auth-User si es válido, 401 si no
+  - `UserEntity` (@Entity con JPA — separado del dominio)
+  - `JpaUserRepository` (extiende JpaRepository, implementa UserRepositoryPort)
+  - `UserMapper` (convierte UserEntity ↔ User)
+  - `JwtTokenServiceAdapter` (implementa TokenServicePort con JJWT)
+  - `JwtConfig`, `BeanConfig`
 - Dockerfile
 - pom.xml con dependencias: spring-boot-starter-web, spring-boot-starter-data-jpa, postgresql, jjwt, spring-security-crypto (BCrypt), prometheus actuator
 
@@ -91,11 +106,22 @@ curl -X POST http://localhost:8084/api/auth/validate \
 **Responsable:** Integrante 3
 
 **Entregables:**
-- Proyecto Spring Boot con:
-  - `Robot` entity (id, name, batteryLevel, available, currentLocation, operationalMode)
+- Proyecto Spring Boot con arquitectura hexagonal purista:
+
+  **domain/** (sin imports de framework):
+  - `Robot` — POJO puro (id, name, batteryLevel, available, currentLocation, operationalMode)
+  - `RobotStatus` — Value Object
+  - `RobotNotFoundException` — excepción de dominio
+
+  **application/** (sin imports de framework):
+  - Puertos de entrada: `GetRobotStatusUseCase`, `UpdateBatteryUseCase`
+  - Puerto de salida: `RobotCachePort`
+  - Servicio: `RobotStatusService` — orquesta puertos
+
+  **infrastructure/** (todo el framework permitido aquí):
   - `RobotStatusController` (GET /api/robots/{id}/status, POST /api/robots)
-  - `RobotStatusService` con lógica de simulación
-  - Redis repository para cache de estado
+  - `RedisRobotAdapter` (implementa RobotCachePort con Redis)
+  - `RedisConfig`
 - Dockerfile
 - Pom.xml con dependencias: spring-boot-starter-web, spring-boot-starter-data-redis, prometheus actuator
 - Estados simulados: 5 robots con batería variable (2 con < 15%, 3 con >= 15%)
@@ -150,13 +176,23 @@ curl -X POST http://localhost:8081/api/orders/ORD-001/assign-robot -H "Content-T
 **Responsable:** Integrante 2
 
 **Entregables:**
-- Proyecto Spring Boot con:
-  - `NatsRouteEventConsumer` — suscriptor al queue `route.completed.q` vía `@RabbitListener`
-  - Exchange `logistics.exchange` (topic) + Queue `route.completed.q` + Binding con routing key `route.completed`
-  - `RouteEvent` document (MongoDB) con eventId, orderId, robotId, path, distance, duration, timestamp
-  - `RouteEventRepository` (MongoRepository)
-  - `AnalyticsService` — procesa y persiste eventos
-- Dockerfile + pom.xml (spring-boot-starter-amqp en vez de nats-spring)
+- Proyecto Spring Boot con arquitectura hexagonal purista:
+
+  **domain/** (sin imports de framework):
+  - `RouteEvent` — POJO puro (eventId, orderId, robotId, path, distance, duration, timestamp)
+  - `CongestionSample` — POJO puro
+  - `EventProcessingException` — excepción de dominio
+
+  **application/** (sin imports de framework):
+  - Puerto de entrada: `ProcessRouteEventUseCase`
+  - Puerto de salida: `AnalyticsRepositoryPort`
+  - Servicio: `AnalyticsService` — procesa y persiste eventos
+
+  **infrastructure/** (todo el framework permitido aquí):
+  - `RouteEventConsumer` (RabbitMQ @RabbitListener para queue `route.completed.q`)
+  - `MongoRouteEventAdapter` (implementa AnalyticsRepositoryPort con MongoRepository)
+  - `AnalyticsConfig` (declara Exchange `logistics.exchange`, Queue `route.completed.q`, Binding con routing key `route.completed`)
+- Dockerfile + pom.xml (spring-boot-starter-amqp, spring-boot-starter-data-mongodb)
 
 **Verificación:**
 ```bash
@@ -245,7 +281,7 @@ Abrir http://localhost:16686 → Jaeger UI con trazas del flujo completo
 
 | Riesgo | Probabilidad | Impacto | Mitigación |
 |---|---|---|---|
-| Arquitectura hexagonal queda en solo carpetas | Alta | Crítico | Code review forzado: dominio no importa frameworks |
+| Arquitectura hexagonal queda en solo carpetas (domain/ importa Spring/JPA/Jakarta) | Alta | Crítico | Code review forzado con checklist: domain/ no tiene imports de framework. Dominio puro compila sin Spring Boot |
 | Eventos NATS no llegan a Analytics | Media | Alto | Outbox pattern + verificación manual con NATS CLI |
 | Dijkstra sin datos semilla no se puede probar | Media | Alto | Script seed-warehouse.sql incluido desde Fase A |
 | Configuración RabbitMQ (exchanges, queues, bindings) | Media | Alto | Declarar beans en `RabbitConfig.java` dentro de cada MS |

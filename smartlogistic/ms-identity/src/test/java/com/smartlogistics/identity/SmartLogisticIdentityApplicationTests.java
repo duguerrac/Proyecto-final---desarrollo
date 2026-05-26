@@ -1,9 +1,8 @@
 package com.smartlogistics.identity;
 
-import com.smartlogistics.identity.dto.LoginRequest;
-import com.smartlogistics.identity.dto.RegisterRequest;
-import com.smartlogistics.identity.model.User;
-import com.smartlogistics.identity.repository.UserRepository;
+import com.smartlogistics.identity.infrastructure.adapter.in.rest.dto.LoginRequest;
+import com.smartlogistics.identity.infrastructure.adapter.in.rest.dto.RegisterRequest;
+import com.smartlogistics.identity.infrastructure.adapter.out.jpa.JpaUserRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -33,7 +32,7 @@ class SmartLogisticIdentityApplicationTests {
     private TestRestTemplate restTemplate;
 
     @Autowired
-    private UserRepository userRepository;
+    private JpaUserRepository userRepository;
 
     @BeforeEach
     void setUp() {

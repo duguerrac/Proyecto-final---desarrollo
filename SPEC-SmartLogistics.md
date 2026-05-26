@@ -86,12 +86,18 @@ smartlogistic/
 │   ├── Dockerfile
 │   ├── pom.xml
 │   └── src/main/java/com/smartlogistics/identity/
-│       ├── controller/    # AuthController (login, register, validate)
-│       ├── service/       # AuthService, JwtService
-│       ├── model/         # User entity
-│       ├── repository/    # UserRepository (PostgreSQL)
-│       ├── dto/           # LoginRequest, RegisterRequest, AuthResponse
-│       └── config/        # SecurityConfig, JwtConfig
+│       ├── domain/
+│       │   ├── model/        # User (POJO puro), Role (enum)
+│       │   └── exception/    # UserAlreadyExistsException
+│       ├── application/
+│       │   ├── port/in/      # RegisterUseCase, LoginUseCase, ValidateTokenUseCase
+│       │   ├── port/out/     # UserRepositoryPort, TokenServicePort
+│       │   └── service/      # AuthApplicationService (orquesta puertos)
+│       └── infrastructure/
+│           ├── adapter/in/rest/    # AuthController
+│           ├── adapter/out/jpa/    # UserEntity (JPA), JpaUserRepository, UserMapper
+│           ├── adapter/out/jwt/    # JwtTokenServiceAdapter
+│           └── config/             # JwtConfig, BeanConfig
 ├── ms-warehouse-core/
 │   ├── Dockerfile
 │   ├── pom.xml
@@ -113,18 +119,32 @@ smartlogistic/
 │   ├── Dockerfile
 │   ├── pom.xml
 │   └── src/main/java/com/smartlogistics/robotstatus/
-│       ├── controller/   # RobotStatusController
-│       ├── service/      # RobotStatusService
-│       ├── model/        # Robot, RobotStatus
-│       └── repository/   # Redis repository
+│       ├── domain/
+│       │   ├── model/        # Robot (POJO puro), RobotStatus (value object)
+│       │   └── exception/    # RobotNotFoundException
+│       ├── application/
+│       │   ├── port/in/      # GetRobotStatusUseCase, UpdateBatteryUseCase
+│       │   ├── port/out/     # RobotCachePort
+│       │   └── service/      # RobotStatusService (orquesta puertos)
+│       └── infrastructure/
+│           ├── adapter/in/rest/    # RobotStatusController
+│           ├── adapter/out/redis/  # RedisRobotAdapter implements RobotCachePort
+│           └── config/             # RedisConfig
 ├── ms-logistics-analytics/
 │   ├── Dockerfile
 │   ├── pom.xml
 │   └── src/main/java/com/smartlogistics/analytics/
-│       ├── consumer/     # NATS consumer for route.completed
-│       ├── service/      # AnalyticsService
-│       ├── model/        # RouteEvent, CongestionSample
-│       └── repository/   # MongoDB repository
+│       ├── domain/
+│       │   ├── model/        # RouteEvent (POJO puro), CongestionSample
+│       │   └── exception/    # EventProcessingException
+│       ├── application/
+│       │   ├── port/in/      # ProcessRouteEventUseCase
+│       │   ├── port/out/     # AnalyticsRepositoryPort
+│       │   └── service/      # AnalyticsService (orquesta puertos)
+│       └── infrastructure/
+│           ├── adapter/in/amqp/     # RouteEventConsumer (RabbitMQ listener)
+│           ├── adapter/out/mongodb/ # MongoRouteEventAdapter implements AnalyticsRepositoryPort
+│           └── config/              # MongoConfig
 ├── observability/
 │   ├── prometheus.yml
 │   ├── loki-config.yml
@@ -271,6 +291,37 @@ class OrderController {
 - **Integration tests** (@SpringBootTest): REST controllers, repositories
 - **Coverage**: >= 70% en domain y application layers
 - **Comando**: `mvn test` en cada módulo
+
+## Regla Hexagonal Purista (aplica a TODOS los MS)
+
+Cada microservicio debe seguir arquitectura hexagonal estricta con **zero imports de framework** en las capas `domain/` y `application/`:
+
+```
+ms-{name}/
+├── domain/                         ← POJOs puros. Sin imports de Spring, JPA, Jakarta ni ningún framework
+│   ├── model/                      → Entidades, Value Objects
+│   └── exception/                  → Excepciones de dominio
+│
+├── application/                    ← Interfaces puras. Sin imports de framework
+│   ├── port/in/                    → Casos de uso (interfaces que entran al MS)
+│   ├── port/out/                   → Puertos de salida (interfaces que salen del MS)
+│   └── service/                    → Orquestación usando solo puertos
+│
+└── infrastructure/                 ← TODO el framework permitido aquí
+    ├── adapter/in/                 → REST controllers, RabbitMQ listeners, etc.
+    ├── adapter/out/                → JPA repositories, HTTP clients, brokers, JWT
+    └── config/                     → Beans, properties, configuraciones
+```
+
+### Reglas de validación (code review)
+
+| Contexto | Permitido | Prohibido |
+|---|---|---|
+| `domain/` y `application/` | Java puro, interfaces, records, enums | `import org.springframework.*`, `import jakarta.*`, `import io.jsonwebtoken.*`, cualquier `@Annotation` de framework |
+| `infrastructure/adapter/in/` | `@RestController`, `@RabbitListener`, etc. | Reglas de negocio |
+| `infrastructure/adapter/out/` | `@Entity`, `@Repository`, `JpaRepository`, `RabbitTemplate`, `BCryptPasswordEncoder` | Lógica de dominio |
+
+
 
 ## Boundaries
 

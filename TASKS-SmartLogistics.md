@@ -90,29 +90,92 @@
   curl -X POST localhost:8084/api/auth/validate -H "Authorization: Bearer INVALIDO" → 401
   ```
 - **Files**:
-  - `ms-identity/src/main/java/.../controller/AuthController.java`
+  - `ms-identity/src/main/java/.../infrastructure/adapter/in/rest/AuthController.java`
+
+### Task A.5.6 — Refactorizar MS-Identity a arquitectura hexagonal purista
+
+- **Contexto**: Las tareas A.5.1-A.5.5 se implementaron inicialmente con anotaciones de framework en el modelo y sin separación de capas. Esta tarea refactoriza el código existente para cumplir la **Regla Hexagonal Purista** (domain/ y application/ con zero imports de framework).
+
+- **Acceptance**:
+  - **domain/**:
+    - `model/User.java` → POJO puro sin JPA: `String id, String username, String passwordHash, Role role`
+    - `model/Role.java` → enum (OPERATOR, ADMIN)
+    - `exception/UserAlreadyExistsException.java` → excepción de dominio
+  - **application/**:
+    - `port/in/RegisterUseCase.java` → interfaz pura
+    - `port/in/LoginUseCase.java` → interfaz pura
+    - `port/in/ValidateTokenUseCase.java` → interfaz pura
+    - `port/out/UserRepositoryPort.java` → interfaz pura (save, findByUsername, existsByUsername)
+    - `port/out/TokenServicePort.java` → interfaz pura (generate, validate)
+    - `service/AuthApplicationService.java` → orquesta puertos, cero imports framework
+  - **infrastructure/**:
+    - `adapter/in/rest/AuthController.java` → @RestController que inyecta puertos de entrada
+    - `adapter/out/jpa/UserEntity.java` → @Entity aquí (no en domain)
+    - `adapter/out/jpa/JpaUserRepository.java` → extends JpaRepository, implements UserRepositoryPort
+    - `adapter/out/jpa/UserMapper.java` → UserEntity ↔ User
+    - `adapter/out/jwt/JwtTokenServiceAdapter.java` → implementa TokenServicePort con JJWT + BCrypt
+    - `config/JwtConfig.java` → propiedades JWT
+    - `config/BeanConfig.java` → beans de aplicación
+  - **domain/** y **application/** no contienen ningún `import` de: `org.springframework`, `jakarta`, `io.jsonwebtoken`, ni anotaciones de framework
+- **Verify**:
+  ```bash
+  cd ms-identity
+  mvn clean compile  # compila sin errores
+  mvn test          # tests existentes siguen pasando
+  # Verificar pureza del dominio (grep por imports prohibidos en domain/ y application/)
+  powershell -Command "Get-ChildItem -Recurse -Include '*.java' src/main/java/com/smartlogistics/identity/domain,src/main/java/com/smartlogistics/identity/application | Select-String 'import org.springframework|import jakarta|import io.jsonwebtoken'"
+  ```
+- **Files**:
+  - `ms-identity/src/main/java/.../domain/model/User.java`
+  - `ms-identity/src/main/java/.../domain/model/Role.java`
+  - `ms-identity/src/main/java/.../domain/exception/UserAlreadyExistsException.java`
+  - `ms-identity/src/main/java/.../application/port/in/RegisterUseCase.java`
+  - `ms-identity/src/main/java/.../application/port/in/LoginUseCase.java`
+  - `ms-identity/src/main/java/.../application/port/in/ValidateTokenUseCase.java`
+  - `ms-identity/src/main/java/.../application/port/out/UserRepositoryPort.java`
+  - `ms-identity/src/main/java/.../application/port/out/TokenServicePort.java`
+  - `ms-identity/src/main/java/.../application/service/AuthApplicationService.java`
+  - `ms-identity/src/main/java/.../infrastructure/adapter/in/rest/AuthController.java`
+  - `ms-identity/src/main/java/.../infrastructure/adapter/out/jpa/UserEntity.java`
+  - `ms-identity/src/main/java/.../infrastructure/adapter/out/jpa/JpaUserRepository.java`
+  - `ms-identity/src/main/java/.../infrastructure/adapter/out/jpa/UserMapper.java`
+  - `ms-identity/src/main/java/.../infrastructure/adapter/out/jwt/JwtTokenServiceAdapter.java`
+  - `ms-identity/src/main/java/.../infrastructure/config/JwtConfig.java`
+  - `ms-identity/src/main/java/.../infrastructure/config/BeanConfig.java`
 
 ---
 
 ## Fase B: MS-RobotStatus
 
-### Task B.1 — Inicializar proyecto Spring Boot con dependencias
+### Task B.1 — Inicializar proyecto Spring Boot con estructura hexagonal
 
-- **Acceptance**: `mvn clean compile` sin errores. Dependencias: web, data-redis, actuator, prometheus
+- **Acceptance**: `mvn clean compile` sin errores. Paquetes domain/, application/, infrastructure/ creados. Dependencias: web, data-redis, actuator, prometheus
 - **Verify**: `mvn test` pasa (al menos el test de contexto de Spring)
 - **Files**:
   - `smartlogistics/ms-robot-status/pom.xml`
   - `smartlogistics/ms-robot-status/Dockerfile`
 
-### Task B.2 — Implementar modelo y repositorio Redis
+### Task B.2 — Implementar capa de dominio (modelo puro)
 
-- **Acceptance**: `Robot` entity con id, batteryLevel, available, currentLocation. RedisRepository guarda y consulta por id
-- **Verify**: Test unitario: `redisRepository.findById("RBT-01")` retorna Optional con Robot
+- **Acceptance**: `Robot` POJO puro (id, batteryLevel, available, currentLocation). `RobotStatus` value object. Sin imports de framework.
+- **Verify**: Test unitario: crear Robot y verificar sus propiedades
 - **Files**:
-  - `ms-robot-status/src/main/java/.../model/Robot.java`
-  - `ms-robot-status/src/main/java/.../repository/RobotStatusRepository.java`
+  - `ms-robot-status/src/main/java/.../domain/model/Robot.java`
+  - `ms-robot-status/src/main/java/.../domain/model/RobotStatus.java`
+  - `ms-robot-status/src/main/java/.../domain/exception/RobotNotFoundException.java`
 
-### Task B.3 — Implementar controlador REST
+### Task B.3 — Implementar puertos de aplicación y adaptador Redis
+
+- **Acceptance**: `RobotCachePort` (puerto de salida). `RedisRobotAdapter` implementa RobotCachePort con RedisRepository. `GetRobotStatusUseCase` y `UpdateBatteryUseCase` como puertos de entrada.
+- **Verify**: Test unitario: `redisRobotAdapter.findById("RBT-01")` retorna Optional con Robot
+- **Files**:
+  - `ms-robot-status/src/main/java/.../application/port/in/GetRobotStatusUseCase.java`
+  - `ms-robot-status/src/main/java/.../application/port/in/UpdateBatteryUseCase.java`
+  - `ms-robot-status/src/main/java/.../application/port/out/RobotCachePort.java`
+  - `ms-robot-status/src/main/java/.../application/service/RobotStatusService.java`
+  - `ms-robot-status/src/main/java/.../infrastructure/adapter/out/redis/RedisRobotAdapter.java`
+
+### Task B.4 — Implementar controlador REST (adaptador entrada)
 
 - **Acceptance**:
   - `GET /api/robots/{id}/status` → 200 con estado del robot
@@ -120,10 +183,9 @@
   - `POST /api/robots` → 201, crea/actualiza robot
 - **Verify**: `curl localhost:8082/api/robots/RBT-01/status` → 200 JSON
 - **Files**:
-  - `ms-robot-status/src/main/java/.../controller/RobotStatusController.java`
-  - `ms-robot-status/src/main/java/.../service/RobotStatusService.java`
+  - `ms-robot-status/src/main/java/.../infrastructure/adapter/in/rest/RobotStatusController.java`
 
-### Task B.4 — Sembrar datos de robots en Redis al iniciar
+### Task B.5 — Sembrar datos de robots en Redis al iniciar
 
 - **Acceptance**: Al arrancar, se insertan 5 robots (2 con batería < 15%, 3 con >= 15%)
 - **Verify**: Consultar robot con batería baja: `curl localhost:8082/api/robots/RBT-LOW/status` → batteryLevel: 10
@@ -219,24 +281,52 @@
 
 ## Fase D: MS-LogisticsAnalytics
 
-### Task D.1 — Inicializar proyecto Spring Boot
+### Task D.1 — Inicializar proyecto Spring Boot con estructura hexagonal
 
-- **Acceptance**: Dependencias: web, mongodb, amqp, actuator, prometheus
+- **Acceptance**: Paquetes domain/, application/, infrastructure/ creados. Dependencias: web, mongodb, amqp, actuator, prometheus
 - **Verify**: `mvn test` pasa
 - **Files**:
   - `smartlogistic/ms-logistics-analytics/pom.xml`
   - `smartlogistic/ms-logistics-analytics/Dockerfile`
 
-### Task D.2 — Implementar consumer RabbitMQ y persistencia MongoDB
+### Task D.2 — Implementar capa de dominio
 
-- **Acceptance**: Consumer `@RabbitListener(queues = "route.completed.q")`. Exchange `logistics.exchange` (topic) + queue `route.completed.q` + binding declarados en `RabbitConfig`. Deserializa JSON a `RouteEvent` document. Persiste en MongoDB colección `route_events`
+- **Acceptance**: `RouteEvent` POJO puro (eventId, orderId, robotId, path, distance, duration, timestamp). `CongestionSample` POJO puro. `EventProcessingException`. Sin imports de framework.
+- **Verify**: Test unitario: crear RouteEvent y verificar propiedades
+- **Files**:
+  - `ms-logistics-analytics/src/main/java/.../domain/model/RouteEvent.java`
+  - `ms-logistics-analytics/src/main/java/.../domain/model/CongestionSample.java`
+  - `ms-logistics-analytics/src/main/java/.../domain/exception/EventProcessingException.java`
+
+### Task D.3 — Definir puertos de aplicación
+
+- **Acceptance**: `ProcessRouteEventUseCase` (puerto entrada). `AnalyticsRepositoryPort` (puerto salida).
+- **Verify**: Interfaces compilan sin errores
+- **Files**:
+  - `ms-logistics-analytics/src/main/java/.../application/port/in/ProcessRouteEventUseCase.java`
+  - `ms-logistics-analytics/src/main/java/.../application/port/out/AnalyticsRepositoryPort.java`
+
+### Task D.4 — Implementar servicio de aplicación
+
+- **Acceptance**: `AnalyticsService` implementa ProcessRouteEventUseCase, orquesta AnalyticsRepositoryPort. Sin imports de framework.
+- **Verify**: Test unitario con AnalyticsRepositoryPort mockeado
+- **Files**:
+  - `ms-logistics-analytics/src/main/java/.../application/service/AnalyticsService.java`
+
+### Task D.5 — Implementar adaptador RabbitMQ (consumer)
+
+- **Acceptance**: `RouteEventConsumer` con @RabbitListener(queues = "route.completed.q"). Deserializa JSON a RouteEvent y llama a ProcessRouteEventUseCase. Exchange `logistics.exchange` (topic) + queue `route.completed.q` + binding con routing key `route.completed` declarados en `AnalyticsConfig`.
 - **Verify**: Completar ruta → evento aparece en MongoDB
 - **Files**:
-  - `ms-logistics-analytics/src/main/java/.../consumer/RouteEventConsumer.java`
-  - `ms-logistics-analytics/src/main/java/.../config/RabbitConfig.java`
-  - `ms-logistics-analytics/src/main/java/.../model/RouteEvent.java`
-  - `ms-logistics-analytics/src/main/java/.../repository/RouteEventRepository.java`
-  - `ms-logistics-analytics/src/main/java/.../service/AnalyticsService.java`
+  - `ms-logistics-analytics/src/main/java/.../infrastructure/adapter/in/amqp/RouteEventConsumer.java`
+
+### Task D.6 — Implementar adaptador MongoDB (persistencia)
+
+- **Acceptance**: `MongoRouteEventAdapter` implementa AnalyticsRepositoryPort usando MongoRepository para persistir RouteEvent en colección `route_events`
+- **Verify**: Test de integración inserta y consulta en MongoDB
+- **Files**:
+  - `ms-logistics-analytics/src/main/java/.../infrastructure/adapter/out/mongodb/MongoRouteEventAdapter.java`
+  - `ms-logistics-analytics/src/main/java/.../infrastructure/config/AnalyticsConfig.java`
 
 ---
 

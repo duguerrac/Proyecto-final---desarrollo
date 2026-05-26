@@ -1,0 +1,17 @@
+package com.smartlogistics.identity.application.port.in;
+
+public class RegisterResult {
+    private final String token;
+    private final String username;
+    private final String role;
+
+    public RegisterResult(String token, String username, String role) {
+        this.token = token;
+        this.username = username;
+        this.role = role;
+    }
+
+    public String getToken() { return token; }
+    public String getUsername() { return username; }
+    public String getRole() { return role; }
+}
