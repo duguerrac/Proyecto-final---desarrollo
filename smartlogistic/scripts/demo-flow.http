@@ -2,17 +2,57 @@
 ### SmartLogistic — Demo Flow (HTTP Client)
 ### ============================================================
 ### Use: VS Code REST Client extension (humao.rest-client)
-### Base URL (via Nginx, Fase E)
+### Steps: 1. Register → 2. Login → save token → 3. Use token on protected endpoints
+### ============================================================
 
 @baseUrl = http://localhost:8080/api
+@authToken = <insert-token-from-login>
 
 ### ============================================================
-### 1. Crear Orden de Despacho
+### 1. Registrar Usuario
+### POST /api/auth/register (público)
+### ============================================================
+
+POST {{baseUrl}}/auth/register
+Content-Type: application/json
+
+{
+  "username": "operador1",
+  "password": "123456",
+  "role": "OPERATOR"
+}
+
+### ============================================================
+### 2. Login — Obtener JWT
+### POST /api/auth/login (público)
+### ============================================================
+### @name login
+### Copy the token value and set @authToken above
+
+POST {{baseUrl}}/auth/login
+Content-Type: application/json
+
+{
+  "username": "operador1",
+  "password": "123456"
+}
+
+### ============================================================
+### 3. Validar Token (uso interno Nginx)
+### POST /api/auth/validate (público)
+### ============================================================
+
+POST {{baseUrl}}/auth/validate
+Authorization: Bearer {{authToken}}
+
+### ============================================================
+### 4. Crear Orden de Despacho (protegido)
 ### POST /api/orders
 ### ============================================================
 
 POST {{baseUrl}}/orders
 Content-Type: application/json
+Authorization: Bearer {{authToken}}
 
 {
   "items": [
@@ -29,55 +69,60 @@ Content-Type: application/json
 }
 
 ### ============================================================
-### 2. Consultar Orden Creada
+### 5. Consultar Orden Creada (protegido)
 ### GET /api/orders/{id}
 ### ============================================================
 
 GET {{baseUrl}}/orders/1
+Authorization: Bearer {{authToken}}
 
 ### ============================================================
-### 3. Asignar Robot Válido (batería >= 15%)
+### 6. Asignar Robot Válido (protegido)
 ### POST /api/orders/{id}/assign-robot
 ### ============================================================
 
 POST {{baseUrl}}/orders/1/assign-robot
 Content-Type: application/json
+Authorization: Bearer {{authToken}}
 
 {
   "robotId": "RBT-01"
 }
 
 ### ============================================================
-### 4. Asignar Robot con Batería Baja (debe rechazar)
+### 7. Asignar Robot con Batería Baja (debe rechazar)
 ### POST /api/orders/{id}/assign-robot
 ### ============================================================
 
 POST {{baseUrl}}/orders/2/assign-robot
 Content-Type: application/json
+Authorization: Bearer {{authToken}}
 
 {
   "robotId": "RBT-LOW"
 }
 
 ### ============================================================
-### 5. Calcular Ruta (Dijkstra)
+### 8. Calcular Ruta (Dijkstra) (protegido)
 ### POST /api/orders/{id}/route-plan
 ### ============================================================
 
 POST {{baseUrl}}/orders/1/route-plan
 Content-Type: application/json
+Authorization: Bearer {{authToken}}
 
 {
   "algorithm": "DIJKSTRA"
 }
 
 ### ============================================================
-### 6. Completar Ruta
+### 9. Completar Ruta (protegido)
 ### POST /api/routes/{id}/complete
 ### ============================================================
 
 POST {{baseUrl}}/routes/1/complete
 Content-Type: application/json
+Authorization: Bearer {{authToken}}
 
 {
   "robotId": "RBT-01",
@@ -85,27 +130,36 @@ Content-Type: application/json
 }
 
 ### ============================================================
-### 7. Consultar Stock por SKU
+### 10. Consultar Stock por SKU (protegido)
 ### GET /api/inventory/items/{sku}/spots
 ### ============================================================
 
 GET {{baseUrl}}/inventory/items/SKU-ELEC-001/spots
+Authorization: Bearer {{authToken}}
 
 ### ============================================================
-### 8. Consultar Grafo del Almacén
+### 11. Consultar Grafo del Almacén (protegido)
 ### GET /api/warehouse/graph
 ### ============================================================
 
 GET {{baseUrl}}/warehouse/graph
+Authorization: Bearer {{authToken}}
 
 ### ============================================================
-### 9. Health Check (directo a MS)
+### 12. Sin JWT — debe dar 401 (protegido)
+### GET /api/orders
 ### ============================================================
 
-GET http://localhost:8081/actuator/health
+GET {{baseUrl}}/orders
 
 ### ============================================================
-### 10. Métricas Prometheus (directo a MS)
+### 13. Health Check (directo a MS-Identity)
 ### ============================================================
 
-GET http://localhost:8081/actuator/prometheus
+GET http://localhost:8084/actuator/health
+
+### ============================================================
+### 14. Métricas Prometheus (directo a MS-Identity)
+### ============================================================
+
+GET http://localhost:8084/actuator/prometheus
