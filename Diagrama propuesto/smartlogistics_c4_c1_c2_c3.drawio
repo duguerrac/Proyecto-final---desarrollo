@@ -1,0 +1,335 @@
+<mxfile host="Electron" modified="2026-05-21T03:00:00.000Z" agent="ChatGPT" version="24.7.17" type="device">
+  <diagram id="smartlogistics-c1" name="C1 - Contexto">
+    <mxGraphModel dx="2188" dy="1322" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1654" pageHeight="1169" math="0" shadow="0">
+      <root>
+        <mxCell id="0"/>
+        <mxCell id="1" parent="0"/>
+        <mxCell id="c1_title" value="[System Context] SmartLogistics — Gestión de Almacenes Autónomos" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;fontSize=18;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="420" y="20" width="850" height="40" as="geometry"/>
+        </mxCell>
+        <mxCell id="c1_sub" value="Sistema para asignar robots, calcular rutas de picking y registrar trazabilidad logística" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;fontSize=11;fontColor=#666666;" vertex="1" parent="1">
+          <mxGeometry x="410" y="55" width="880" height="24" as="geometry"/>
+        </mxCell>
+        <mxCell id="c1_supervisor" value="&lt;font style=&quot;font-size: 16px&quot;&gt;&lt;b&gt;Supervisor Logístico&lt;/b&gt;&lt;/font&gt;&lt;div&gt;[Person]&lt;/div&gt;&lt;br&gt;&lt;div&gt;&lt;font style=&quot;font-size: 11px&quot;&gt;Monitorea congestión, eficiencia, rutas completadas y mapas de calor.&lt;/font&gt;&lt;/div&gt;" style="html=1;fontSize=11;whiteSpace=wrap;fillColor=#083F75;strokeColor=#06315C;fontColor=#ffffff;shape=mxgraph.c4.person2;align=center;" vertex="1" parent="1">
+          <mxGeometry x="120" y="240" width="220" height="180" as="geometry"/>
+        </mxCell>
+        <mxCell id="c1_operator" value="&lt;font style=&quot;font-size: 16px&quot;&gt;&lt;b&gt;Operador de Almacén&lt;/b&gt;&lt;/font&gt;&lt;div&gt;[Person]&lt;/div&gt;&lt;br&gt;&lt;div&gt;&lt;font style=&quot;font-size: 11px&quot;&gt;Crea órdenes de despacho, consulta inventario y supervisa el picking.&lt;/font&gt;&lt;/div&gt;" style="html=1;fontSize=11;whiteSpace=wrap;fillColor=#6C6477;strokeColor=#4D4D4D;fontColor=#ffffff;shape=mxgraph.c4.person2;align=center;" vertex="1" parent="1">
+          <mxGeometry x="120" y="560" width="220" height="180" as="geometry"/>
+        </mxCell>
+        <mxCell id="c1_system" value="&lt;font style=&quot;font-size: 16px&quot;&gt;&lt;b&gt;SmartLogistics System&lt;/b&gt;&lt;/font&gt;&lt;div&gt;[Software System]&lt;/div&gt;&lt;br&gt;&lt;div&gt;&lt;font style=&quot;font-size: 11px&quot;&gt;Coordina órdenes, robots, inventario, rutas, velocidad por fragilidad y analítica.&lt;/font&gt;&lt;/div&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1061B0;fontColor=#ffffff;align=center;arcSize=10;strokeColor=#0D5091;" vertex="1" parent="1">
+          <mxGeometry x="635" y="390" width="360" height="180" as="geometry"/>
+        </mxCell>
+        <mxCell id="c1_robots" value="&lt;font style=&quot;font-size: 16px&quot;&gt;&lt;b&gt;Flota de Robots Autónomos&lt;/b&gt;&lt;/font&gt;&lt;div&gt;[External System]&lt;/div&gt;&lt;br&gt;&lt;div&gt;&lt;font style=&quot;font-size: 11px&quot;&gt;Reporta batería, disponibilidad, posición y recibe instrucciones de ruta.&lt;/font&gt;&lt;/div&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#8C8496;fontColor=#ffffff;align=center;arcSize=10;strokeColor=#736782;" vertex="1" parent="1">
+          <mxGeometry x="1240" y="220" width="320" height="130" as="geometry"/>
+        </mxCell>
+        <mxCell id="c1_wms" value="&lt;font style=&quot;font-size: 16px&quot;&gt;&lt;b&gt;ERP / WMS Externo&lt;/b&gt;&lt;/font&gt;&lt;div&gt;[External System]&lt;/div&gt;&lt;br&gt;&lt;div&gt;&lt;font style=&quot;font-size: 11px&quot;&gt;Puede enviar órdenes o recibir confirmaciones mediante Webhook.&lt;/font&gt;&lt;/div&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#8C8496;fontColor=#ffffff;align=center;arcSize=10;strokeColor=#736782;" vertex="1" parent="1">
+          <mxGeometry x="1240" y="430" width="320" height="130" as="geometry"/>
+        </mxCell>
+        <mxCell id="c1_bi" value="&lt;font style=&quot;font-size: 16px&quot;&gt;&lt;b&gt;Sistema BI / Analítica&lt;/b&gt;&lt;/font&gt;&lt;div&gt;[External System]&lt;/div&gt;&lt;br&gt;&lt;div&gt;&lt;font style=&quot;font-size: 11px&quot;&gt;Consume datos agregados de rutas y congestión para análisis operativo.&lt;/font&gt;&lt;/div&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#8C8496;fontColor=#ffffff;align=center;arcSize=10;strokeColor=#736782;" vertex="1" parent="1">
+          <mxGeometry x="1240" y="640" width="320" height="130" as="geometry"/>
+        </mxCell>
+        <mxCell id="c1_e1" value="Consulta dashboards y rutas" style="endArrow=blockThin;html=1;rounded=0;endFill=1;strokeColor=#828282;fontSize=10;labelBackgroundColor=#ffffff;edgeStyle=orthogonalEdgeStyle;" edge="1" parent="1" source="c1_supervisor" target="c1_system">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="c1_e2" value="Gestiona órdenes de despacho" style="endArrow=blockThin;html=1;rounded=0;endFill=1;strokeColor=#828282;fontSize=10;labelBackgroundColor=#ffffff;edgeStyle=orthogonalEdgeStyle;" edge="1" parent="1" source="c1_operator" target="c1_system">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="c1_e3" value="Consulta estado y asigna rutas" style="endArrow=blockThin;html=1;rounded=0;endFill=1;strokeColor=#828282;fontSize=10;labelBackgroundColor=#ffffff;edgeStyle=orthogonalEdgeStyle;" edge="1" parent="1" source="c1_system" target="c1_robots">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="c1_e4" value="Envía órdenes por Webhook" style="endArrow=blockThin;html=1;rounded=0;endFill=1;strokeColor=#828282;fontSize=10;labelBackgroundColor=#ffffff;edgeStyle=orthogonalEdgeStyle;" edge="1" parent="1" source="c1_wms" target="c1_system">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="c1_e5" value="Confirma ruta/orden completada" style="endArrow=blockThin;html=1;rounded=0;endFill=1;strokeColor=#828282;fontSize=10;labelBackgroundColor=#ffffff;edgeStyle=orthogonalEdgeStyle;" edge="1" parent="1" source="c1_system" target="c1_wms">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="c1_e6" value="Publica eventos analíticos" style="endArrow=blockThin;html=1;rounded=0;endFill=1;strokeColor=#828282;fontSize=10;labelBackgroundColor=#ffffff;edgeStyle=orthogonalEdgeStyle;" edge="1" parent="1" source="c1_system" target="c1_bi">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+  <diagram id="smartlogistics-c2" name="C2 - Contenedores">
+    <mxGraphModel dx="2500" dy="1800" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="2200" pageHeight="1500" math="0" shadow="0">
+      <root>
+        <mxCell id="0"/>
+        <mxCell id="1" parent="0"/>
+        <mxCell id="c2_title" value="[Container Diagram] SmartLogistics — Caso 9" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;fontSize=18;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="600" y="20" width="1000" height="40" as="geometry"/>
+        </mxCell>
+        <mxCell id="c2_sub" value="React + Nginx + microservicios Java Spring Boot + PostgreSQL/Redis/MongoDB + NATS + Prometheus/Grafana/Loki" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;fontSize=11;fontColor=#666666;" vertex="1" parent="1">
+          <mxGeometry x="510" y="55" width="1180" height="24" as="geometry"/>
+        </mxCell>
+        <mxCell id="c2_operator" value="&lt;font style=&quot;font-size: 16px&quot;&gt;&lt;b&gt;Operador de Almacén&lt;/b&gt;&lt;/font&gt;&lt;div&gt;[Person]&lt;/div&gt;&lt;br&gt;&lt;div&gt;&lt;font style=&quot;font-size: 11px&quot;&gt;Crea órdenes, consulta inventario y revisa asignaciones.&lt;/font&gt;&lt;/div&gt;" style="html=1;fontSize=11;whiteSpace=wrap;fillColor=#6C6477;strokeColor=#4D4D4D;fontColor=#ffffff;shape=mxgraph.c4.person2;align=center;" vertex="1" parent="1">
+          <mxGeometry x="40" y="170" width="210" height="180" as="geometry"/>
+        </mxCell>
+        <mxCell id="c2_supervisor" value="&lt;font style=&quot;font-size: 16px&quot;&gt;&lt;b&gt;Supervisor Logístico&lt;/b&gt;&lt;/font&gt;&lt;div&gt;[Person]&lt;/div&gt;&lt;br&gt;&lt;div&gt;&lt;font style=&quot;font-size: 11px&quot;&gt;Consulta mapas de calor, métricas y congestión.&lt;/font&gt;&lt;/div&gt;" style="html=1;fontSize=11;whiteSpace=wrap;fillColor=#083F75;strokeColor=#06315C;fontColor=#ffffff;shape=mxgraph.c4.person2;align=center;" vertex="1" parent="1">
+          <mxGeometry x="40" y="450" width="210" height="180" as="geometry"/>
+        </mxCell>
+        <mxCell id="c2_webapp" value="&lt;font style=&quot;font-size: 16px&quot;&gt;&lt;b&gt;Web App&lt;/b&gt;&lt;/font&gt;&lt;div&gt;[Container: React]&lt;/div&gt;&lt;br&gt;&lt;div&gt;&lt;font style=&quot;font-size: 11px&quot;&gt;Interfaz para gestión de órdenes, robots, rutas, inventario y analítica.&lt;/font&gt;&lt;/div&gt;" style="shape=mxgraph.c4.webBrowserContainer2;whiteSpace=wrap;html=1;boundedLbl=1;rounded=0;labelBackgroundColor=none;strokeColor=#118ACD;fillColor=#23A2D9;strokeColor2=#0E7DAD;fontSize=12;fontColor=#ffffff;align=center;" vertex="1" parent="1">
+          <mxGeometry x="420" y="125" width="440" height="160" as="geometry"/>
+        </mxCell>
+        <mxCell id="c2_nginx" value="&lt;font style=&quot;font-size: 16px&quot;&gt;&lt;b&gt;Nginx&lt;/b&gt;&lt;/font&gt;&lt;div&gt;[Container: Reverse Proxy]&lt;/div&gt;&lt;br&gt;&lt;div&gt;&lt;font style=&quot;font-size: 11px&quot;&gt;Sirve el front estático y enruta /api hacia el backend.&lt;/font&gt;&lt;/div&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#08427b;fontColor=#ffffff;align=center;arcSize=10;strokeColor=#052e56;" vertex="1" parent="1">
+          <mxGeometry x="980" y="145" width="300" height="120" as="geometry"/>
+        </mxCell>
+        <mxCell id="c2_warehouse" value="&lt;font style=&quot;font-size: 16px&quot;&gt;&lt;b&gt;MS-WarehouseCore&lt;/b&gt;&lt;/font&gt;&lt;div&gt;[Container: Java / Spring Boot / Hexagonal]&lt;/div&gt;&lt;br&gt;&lt;div&gt;&lt;font style=&quot;font-size: 11px&quot;&gt;Orquesta órdenes, inventario, selección de robot, cálculo de ruta y reglas de fragilidad.&lt;/font&gt;&lt;/div&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1061B0;fontColor=#ffffff;align=center;arcSize=10;strokeColor=#0D5091;" vertex="1" parent="1">
+          <mxGeometry x="880" y="435" width="400" height="165" as="geometry"/>
+        </mxCell>
+        <mxCell id="c2_robotstatus" value="&lt;font style=&quot;font-size: 16px&quot;&gt;&lt;b&gt;MS-RobotStatus&lt;/b&gt;&lt;/font&gt;&lt;div&gt;[Container: Java / Spring Boot / REST]&lt;/div&gt;&lt;br&gt;&lt;div&gt;&lt;font style=&quot;font-size: 11px&quot;&gt;Expone estado de robots, batería, posición y disponibilidad en tiempo real.&lt;/font&gt;&lt;/div&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1061B0;fontColor=#ffffff;align=center;arcSize=10;strokeColor=#0D5091;" vertex="1" parent="1">
+          <mxGeometry x="1400" y="420" width="340" height="145" as="geometry"/>
+        </mxCell>
+        <mxCell id="c2_analytics" value="&lt;font style=&quot;font-size: 16px&quot;&gt;&lt;b&gt;MS-LogisticsAnalytics&lt;/b&gt;&lt;/font&gt;&lt;div&gt;[Container: Java / Spring Boot / Async Consumer]&lt;/div&gt;&lt;br&gt;&lt;div&gt;&lt;font style=&quot;font-size: 11px&quot;&gt;Consume rutas completadas y genera insumos para mapas de calor.&lt;/font&gt;&lt;/div&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1061B0;fontColor=#ffffff;align=center;arcSize=10;strokeColor=#0D5091;" vertex="1" parent="1">
+          <mxGeometry x="1400" y="745" width="360" height="145" as="geometry"/>
+        </mxCell>
+        <mxCell id="c2_nats" value="&lt;font style=&quot;font-size: 16px&quot;&gt;&lt;b&gt;NATS&lt;/b&gt;&lt;/font&gt;&lt;div&gt;[Container: Message Broker]&lt;/div&gt;&lt;br&gt;&lt;div&gt;&lt;font style=&quot;font-size: 11px&quot;&gt;Canal asíncrono para route.completed, robot.assigned y analytics.events.&lt;/font&gt;&lt;/div&gt;" style="shape=mxgraph.c4.queue;html=1;whiteSpace=wrap;fillColor=#0B875B;strokeColor=#076C49;fontColor=#ffffff;align=center;" vertex="1" parent="1">
+          <mxGeometry x="930" y="770" width="260" height="95" as="geometry"/>
+        </mxCell>
+        <mxCell id="c2_coredb" value="&lt;font style=&quot;font-size: 16px&quot;&gt;&lt;b&gt;Warehouse Database&lt;/b&gt;&lt;/font&gt;&lt;div&gt;[Container: PostgreSQL]&lt;/div&gt;&lt;br&gt;&lt;div&gt;&lt;font style=&quot;font-size: 11px&quot;&gt;Órdenes, ítems, spots, root points, edges, rutas planificadas e inventario.&lt;/font&gt;&lt;/div&gt;" style="shape=cylinder3;size=15;whiteSpace=wrap;html=1;boundedLbl=1;rounded=0;fillColor=#23A2D9;fontSize=12;fontColor=#ffffff;align=center;strokeColor=#0E7DAD;" vertex="1" parent="1">
+          <mxGeometry x="560" y="710" width="300" height="125" as="geometry"/>
+        </mxCell>
+        <mxCell id="c2_redis" value="&lt;font style=&quot;font-size: 16px&quot;&gt;&lt;b&gt;Robot Status Cache&lt;/b&gt;&lt;/font&gt;&lt;div&gt;[Container: Redis]&lt;/div&gt;&lt;br&gt;&lt;div&gt;&lt;font style=&quot;font-size: 11px&quot;&gt;Cache de batería, disponibilidad, posición y heartbeat de robots.&lt;/font&gt;&lt;/div&gt;" style="shape=cylinder3;size=15;whiteSpace=wrap;html=1;boundedLbl=1;rounded=0;fillColor=#0B875B;fontSize=12;fontColor=#ffffff;align=center;strokeColor=#076C49;" vertex="1" parent="1">
+          <mxGeometry x="1800" y="425" width="280" height="120" as="geometry"/>
+        </mxCell>
+        <mxCell id="c2_analyticsdb" value="&lt;font style=&quot;font-size: 16px&quot;&gt;&lt;b&gt;Analytics Store&lt;/b&gt;&lt;/font&gt;&lt;div&gt;[Container: MongoDB]&lt;/div&gt;&lt;br&gt;&lt;div&gt;&lt;font style=&quot;font-size: 11px&quot;&gt;Movimientos, rutas ejecutadas, puntos visitados y datos para mapas de calor.&lt;/font&gt;&lt;/div&gt;" style="shape=cylinder3;size=15;whiteSpace=wrap;html=1;boundedLbl=1;rounded=0;fillColor=#23A2D9;fontSize=12;fontColor=#ffffff;align=center;strokeColor=#0E7DAD;" vertex="1" parent="1">
+          <mxGeometry x="1810" y="745" width="280" height="125" as="geometry"/>
+        </mxCell>
+        <mxCell id="c2_webhook" value="&lt;font style=&quot;font-size: 16px&quot;&gt;&lt;b&gt;ERP / WMS Externo&lt;/b&gt;&lt;/font&gt;&lt;div&gt;[External System: Webhook]&lt;/div&gt;&lt;br&gt;&lt;div&gt;&lt;font style=&quot;font-size: 11px&quot;&gt;Envía órdenes o recibe confirmaciones de rutas y despacho.&lt;/font&gt;&lt;/div&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#8C8496;fontColor=#ffffff;align=center;arcSize=10;strokeColor=#736782;" vertex="1" parent="1">
+          <mxGeometry x="1490" y="145" width="360" height="130" as="geometry"/>
+        </mxCell>
+        <mxCell id="c2_prom" value="&lt;font style=&quot;font-size: 16px&quot;&gt;&lt;b&gt;Prometheus&lt;/b&gt;&lt;/font&gt;&lt;div&gt;[Container: Observability]&lt;/div&gt;&lt;br&gt;&lt;div&gt;&lt;font style=&quot;font-size: 11px&quot;&gt;Recolecta métricas expuestas por Actuator/Micrometer.&lt;/font&gt;&lt;/div&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#0B875B;fontColor=#ffffff;align=center;arcSize=10;strokeColor=#076C49;" vertex="1" parent="1">
+          <mxGeometry x="550" y="1040" width="280" height="115" as="geometry"/>
+        </mxCell>
+        <mxCell id="c2_grafana" value="&lt;font style=&quot;font-size: 16px&quot;&gt;&lt;b&gt;Grafana&lt;/b&gt;&lt;/font&gt;&lt;div&gt;[Container: Dashboard]&lt;/div&gt;&lt;br&gt;&lt;div&gt;&lt;font style=&quot;font-size: 11px&quot;&gt;Visualiza métricas, salud de servicios y tableros logísticos.&lt;/font&gt;&lt;/div&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#0B875B;fontColor=#ffffff;align=center;arcSize=10;strokeColor=#076C49;" vertex="1" parent="1">
+          <mxGeometry x="930" y="1040" width="280" height="115" as="geometry"/>
+        </mxCell>
+        <mxCell id="c2_loki" value="&lt;font style=&quot;font-size: 16px&quot;&gt;&lt;b&gt;Loki&lt;/b&gt;&lt;/font&gt;&lt;div&gt;[Container: Logs]&lt;/div&gt;&lt;br&gt;&lt;div&gt;&lt;font style=&quot;font-size: 11px&quot;&gt;Centraliza logs de contenedores para diagnóstico.&lt;/font&gt;&lt;/div&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#0B875B;fontColor=#ffffff;align=center;arcSize=10;strokeColor=#076C49;" vertex="1" parent="1">
+          <mxGeometry x="1310" y="1040" width="280" height="115" as="geometry"/>
+        </mxCell>
+        <mxCell id="c2_e1" value="Usa" style="endArrow=blockThin;html=1;rounded=0;endFill=1;strokeColor=#828282;fontSize=10;labelBackgroundColor=#ffffff;edgeStyle=orthogonalEdgeStyle;" edge="1" parent="1" source="c2_operator" target="c2_webapp">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="c2_e2" value="Consulta analítica" style="endArrow=blockThin;html=1;rounded=0;endFill=1;strokeColor=#828282;fontSize=10;labelBackgroundColor=#ffffff;edgeStyle=orthogonalEdgeStyle;" edge="1" parent="1" source="c2_supervisor" target="c2_webapp">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="c2_e3" value="HTTP/JSON" style="endArrow=blockThin;html=1;rounded=0;endFill=1;strokeColor=#828282;fontSize=10;labelBackgroundColor=#ffffff;edgeStyle=orthogonalEdgeStyle;" edge="1" parent="1" source="c2_webapp" target="c2_nginx">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="c2_e4" value="Reverse proxy /api" style="endArrow=blockThin;html=1;rounded=0;endFill=1;strokeColor=#828282;fontSize=10;labelBackgroundColor=#ffffff;edgeStyle=orthogonalEdgeStyle;" edge="1" parent="1" source="c2_nginx" target="c2_warehouse">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="c2_e5" value="Valida batería &gt;= 15% / REST síncrono" style="endArrow=blockThin;html=1;rounded=0;endFill=1;strokeColor=#828282;fontSize=10;labelBackgroundColor=#ffffff;edgeStyle=orthogonalEdgeStyle;strokeColor=#0D5091;" edge="1" parent="1" source="c2_warehouse" target="c2_robotstatus">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="c2_e6" value="Lee/escribe estado de robots" style="endArrow=blockThin;html=1;rounded=0;endFill=1;strokeColor=#828282;fontSize=10;labelBackgroundColor=#ffffff;edgeStyle=orthogonalEdgeStyle;" edge="1" parent="1" source="c2_robotstatus" target="c2_redis">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="c2_e7" value="Lee/escribe modelo operativo" style="endArrow=blockThin;html=1;rounded=0;endFill=1;strokeColor=#828282;fontSize=10;labelBackgroundColor=#ffffff;edgeStyle=orthogonalEdgeStyle;" edge="1" parent="1" source="c2_warehouse" target="c2_coredb">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="c2_e8" value="Publica RouteCompleted" style="endArrow=blockThin;html=1;rounded=0;endFill=1;strokeColor=#828282;fontSize=10;labelBackgroundColor=#ffffff;edgeStyle=orthogonalEdgeStyle;strokeColor=#076C49;dashed=1;" edge="1" parent="1" source="c2_warehouse" target="c2_nats">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="c2_e9" value="Consume eventos logísticos" style="endArrow=blockThin;html=1;rounded=0;endFill=1;strokeColor=#828282;fontSize=10;labelBackgroundColor=#ffffff;edgeStyle=orthogonalEdgeStyle;strokeColor=#076C49;dashed=1;" edge="1" parent="1" source="c2_nats" target="c2_analytics">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="c2_e10" value="Persiste rutas ejecutadas" style="endArrow=blockThin;html=1;rounded=0;endFill=1;strokeColor=#828282;fontSize=10;labelBackgroundColor=#ffffff;edgeStyle=orthogonalEdgeStyle;" edge="1" parent="1" source="c2_analytics" target="c2_analyticsdb">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="c2_e11" value="Envía orden por Webhook" style="endArrow=blockThin;html=1;rounded=0;endFill=1;strokeColor=#828282;fontSize=10;labelBackgroundColor=#ffffff;edgeStyle=orthogonalEdgeStyle;" edge="1" parent="1" source="c2_webhook" target="c2_nginx">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="c2_e12" value="Confirma despacho / ruta completada" style="endArrow=blockThin;html=1;rounded=0;endFill=1;strokeColor=#828282;fontSize=10;labelBackgroundColor=#ffffff;edgeStyle=orthogonalEdgeStyle;" edge="1" parent="1" source="c2_warehouse" target="c2_webhook">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="c2_e13" value="/actuator/prometheus" style="endArrow=blockThin;html=1;rounded=0;endFill=1;strokeColor=#828282;fontSize=10;labelBackgroundColor=#ffffff;edgeStyle=orthogonalEdgeStyle;strokeColor=#666666;dashed=1;" edge="1" parent="1" source="c2_warehouse" target="c2_prom">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="c2_e14" value="/actuator/prometheus" style="endArrow=blockThin;html=1;rounded=0;endFill=1;strokeColor=#828282;fontSize=10;labelBackgroundColor=#ffffff;edgeStyle=orthogonalEdgeStyle;strokeColor=#666666;dashed=1;" edge="1" parent="1" source="c2_robotstatus" target="c2_prom">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="c2_e15" value="/actuator/prometheus" style="endArrow=blockThin;html=1;rounded=0;endFill=1;strokeColor=#828282;fontSize=10;labelBackgroundColor=#ffffff;edgeStyle=orthogonalEdgeStyle;strokeColor=#666666;dashed=1;" edge="1" parent="1" source="c2_analytics" target="c2_prom">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="c2_e16" value="Consulta métricas" style="endArrow=blockThin;html=1;rounded=0;endFill=1;strokeColor=#828282;fontSize=10;labelBackgroundColor=#ffffff;edgeStyle=orthogonalEdgeStyle;strokeColor=#666666;dashed=1;" edge="1" parent="1" source="c2_grafana" target="c2_prom">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="c2_e17" value="Consulta logs" style="endArrow=blockThin;html=1;rounded=0;endFill=1;strokeColor=#828282;fontSize=10;labelBackgroundColor=#ffffff;edgeStyle=orthogonalEdgeStyle;strokeColor=#666666;dashed=1;" edge="1" parent="1" source="c2_grafana" target="c2_loki">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="c2_note" value="&lt;b&gt;Nota técnica:&lt;/b&gt; si el equipo debe usar solo PostgreSQL, Analytics Store puede ser PostgreSQL; si se busca alineación literal con el caso 9 y persistencia políglota, MongoDB es mejor para eventos/rutas ejecutadas." style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;fontSize=12;fontColor=#666666;" vertex="1" parent="1">
+          <mxGeometry x="500" y="1225" width="1200" height="60" as="geometry"/>
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+  <diagram id="smartlogistics-c3" name="C3 - MS-WarehouseCore">
+    <mxGraphModel dx="2800" dy="2000" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="2400" pageHeight="1600" math="0" shadow="0">
+      <root>
+        <mxCell id="0"/>
+        <mxCell id="1" parent="0"/>
+        <mxCell id="c3_title" value="[Component Diagram] MS-WarehouseCore — Arquitectura Hexagonal" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;fontSize=18;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="600" y="20" width="1050" height="40" as="geometry"/>
+        </mxCell>
+        <mxCell id="c3_sub" value="Separación de adapters in/out, puertos, casos de uso y dominio para sustentar SOLID y reglas del caso 9" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;fontSize=11;fontColor=#666666;" vertex="1" parent="1">
+          <mxGeometry x="470" y="55" width="1350" height="24" as="geometry"/>
+        </mxCell>
+        <mxCell id="c3_boundary" value="MS-WarehouseCore [Container: Java / Spring Boot]" style="rounded=1;whiteSpace=wrap;html=1;fillColor=none;fontColor=#333333;align=left;verticalAlign=top;arcSize=6;strokeColor=#6C6477;dashed=1;spacing=10;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="80" y="120" width="2100" height="1120" as="geometry"/>
+        </mxCell>
+        <mxCell id="c3_rest" value="&lt;font style=&quot;font-size: 14px&quot;&gt;&lt;b&gt;DispatchOrderRestController&lt;/b&gt;&lt;/font&gt;&lt;div&gt;[Inbound Adapter]&lt;/div&gt;&lt;br&gt;&lt;div&gt;&lt;font style=&quot;font-size: 11px&quot;&gt;Expone APIs para crear órdenes, consultar rutas y completar picking.&lt;/font&gt;&lt;/div&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1061B0;fontColor=#ffffff;align=center;arcSize=10;strokeColor=#0D5091;" vertex="1" parent="1">
+          <mxGeometry x="150" y="210" width="330" height="110" as="geometry"/>
+        </mxCell>
+        <mxCell id="c3_hookin" value="&lt;font style=&quot;font-size: 14px&quot;&gt;&lt;b&gt;InboundWebhookController&lt;/b&gt;&lt;/font&gt;&lt;div&gt;[Inbound Adapter]&lt;/div&gt;&lt;br&gt;&lt;div&gt;&lt;font style=&quot;font-size: 11px&quot;&gt;Recibe órdenes externas desde ERP/WMS por Webhook.&lt;/font&gt;&lt;/div&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1061B0;fontColor=#ffffff;align=center;arcSize=10;strokeColor=#0D5091;" vertex="1" parent="1">
+          <mxGeometry x="150" y="360" width="330" height="110" as="geometry"/>
+        </mxCell>
+        <mxCell id="c3_scheduler" value="&lt;font style=&quot;font-size: 14px&quot;&gt;&lt;b&gt;RouteReplanScheduler&lt;/b&gt;&lt;/font&gt;&lt;div&gt;[Inbound Adapter]&lt;/div&gt;&lt;br&gt;&lt;div&gt;&lt;font style=&quot;font-size: 11px&quot;&gt;Recalcula rutas cuando hay congestión o cambios de robot.&lt;/font&gt;&lt;/div&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1061B0;fontColor=#ffffff;align=center;arcSize=10;strokeColor=#0D5091;" vertex="1" parent="1">
+          <mxGeometry x="150" y="510" width="330" height="110" as="geometry"/>
+        </mxCell>
+        <mxCell id="c3_dispatchsvc" value="&lt;font style=&quot;font-size: 14px&quot;&gt;&lt;b&gt;DispatchOrderService&lt;/b&gt;&lt;/font&gt;&lt;div&gt;[Application Service]&lt;/div&gt;&lt;br&gt;&lt;div&gt;&lt;font style=&quot;font-size: 11px&quot;&gt;Valida orden, inventario y estado antes de asignar robot.&lt;/font&gt;&lt;/div&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1061B0;fontColor=#ffffff;align=center;arcSize=10;strokeColor=#0D5091;" vertex="1" parent="1">
+          <mxGeometry x="600" y="190" width="340" height="115" as="geometry"/>
+        </mxCell>
+        <mxCell id="c3_assignsvc" value="&lt;font style=&quot;font-size: 14px&quot;&gt;&lt;b&gt;RobotAssignmentService&lt;/b&gt;&lt;/font&gt;&lt;div&gt;[Application Service]&lt;/div&gt;&lt;br&gt;&lt;div&gt;&lt;font style=&quot;font-size: 11px&quot;&gt;Aplica regla de batería, disponibilidad y capacidad del robot.&lt;/font&gt;&lt;/div&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1061B0;fontColor=#ffffff;align=center;arcSize=10;strokeColor=#0D5091;" vertex="1" parent="1">
+          <mxGeometry x="600" y="335" width="340" height="115" as="geometry"/>
+        </mxCell>
+        <mxCell id="c3_routesvc" value="&lt;font style=&quot;font-size: 14px&quot;&gt;&lt;b&gt;RoutePlanningService&lt;/b&gt;&lt;/font&gt;&lt;div&gt;[Application Service]&lt;/div&gt;&lt;br&gt;&lt;div&gt;&lt;font style=&quot;font-size: 11px&quot;&gt;Calcula ruta sobre grafo de root points y spots.&lt;/font&gt;&lt;/div&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1061B0;fontColor=#ffffff;align=center;arcSize=10;strokeColor=#0D5091;" vertex="1" parent="1">
+          <mxGeometry x="600" y="480" width="340" height="115" as="geometry"/>
+        </mxCell>
+        <mxCell id="c3_inventorysvc" value="&lt;font style=&quot;font-size: 14px&quot;&gt;&lt;b&gt;InventoryService&lt;/b&gt;&lt;/font&gt;&lt;div&gt;[Application Service]&lt;/div&gt;&lt;br&gt;&lt;div&gt;&lt;font style=&quot;font-size: 11px&quot;&gt;Reserva y descuenta inventario por Spot-Item al completar la orden.&lt;/font&gt;&lt;/div&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1061B0;fontColor=#ffffff;align=center;arcSize=10;strokeColor=#0D5091;" vertex="1" parent="1">
+          <mxGeometry x="600" y="625" width="340" height="115" as="geometry"/>
+        </mxCell>
+        <mxCell id="c3_domain1" value="&lt;font style=&quot;font-size: 14px&quot;&gt;&lt;b&gt;DispatchOrder / OrderLine&lt;/b&gt;&lt;/font&gt;&lt;div&gt;[Domain Model]&lt;/div&gt;&lt;br&gt;&lt;div&gt;&lt;font style=&quot;font-size: 11px&quot;&gt;Orden con ítems y cantidades requeridas.&lt;/font&gt;&lt;/div&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#0B875B;fontColor=#ffffff;align=center;arcSize=10;strokeColor=#076C49;" vertex="1" parent="1">
+          <mxGeometry x="1030" y="210" width="315" height="105" as="geometry"/>
+        </mxCell>
+        <mxCell id="c3_domain2" value="&lt;font style=&quot;font-size: 14px&quot;&gt;&lt;b&gt;InventoryItem / SpotItem&lt;/b&gt;&lt;/font&gt;&lt;div&gt;[Domain Model]&lt;/div&gt;&lt;br&gt;&lt;div&gt;&lt;font style=&quot;font-size: 11px&quot;&gt;Ítem físico ubicado en spots con cantidad disponible.&lt;/font&gt;&lt;/div&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#0B875B;fontColor=#ffffff;align=center;arcSize=10;strokeColor=#076C49;" vertex="1" parent="1">
+          <mxGeometry x="1030" y="345" width="315" height="105" as="geometry"/>
+        </mxCell>
+        <mxCell id="c3_domain3" value="&lt;font style=&quot;font-size: 14px&quot;&gt;&lt;b&gt;Spot / RootPoint / RouteEdge&lt;/b&gt;&lt;/font&gt;&lt;div&gt;[Domain Model]&lt;/div&gt;&lt;br&gt;&lt;div&gt;&lt;font style=&quot;font-size: 11px&quot;&gt;Coordenadas, pasillos y aristas transitables del almacén.&lt;/font&gt;&lt;/div&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#0B875B;fontColor=#ffffff;align=center;arcSize=10;strokeColor=#076C49;" vertex="1" parent="1">
+          <mxGeometry x="1030" y="480" width="315" height="105" as="geometry"/>
+        </mxCell>
+        <mxCell id="c3_domain4" value="&lt;font style=&quot;font-size: 14px&quot;&gt;&lt;b&gt;RoutePlan / MovementLog&lt;/b&gt;&lt;/font&gt;&lt;div&gt;[Domain Model]&lt;/div&gt;&lt;br&gt;&lt;div&gt;&lt;font style=&quot;font-size: 11px&quot;&gt;Ruta planificada, movimientos y tiempos ejecutados.&lt;/font&gt;&lt;/div&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#0B875B;fontColor=#ffffff;align=center;arcSize=10;strokeColor=#076C49;" vertex="1" parent="1">
+          <mxGeometry x="1030" y="615" width="315" height="105" as="geometry"/>
+        </mxCell>
+        <mxCell id="c3_policy" value="&lt;font style=&quot;font-size: 14px&quot;&gt;&lt;b&gt;FragileProductPolicy&lt;/b&gt;&lt;/font&gt;&lt;div&gt;[Domain Policy]&lt;/div&gt;&lt;br&gt;&lt;div&gt;&lt;font style=&quot;font-size: 11px&quot;&gt;Si el producto es frágil, reduce la velocidad configurada.&lt;/font&gt;&lt;/div&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#0B875B;fontColor=#ffffff;align=center;arcSize=10;strokeColor=#076C49;" vertex="1" parent="1">
+          <mxGeometry x="1030" y="750" width="315" height="105" as="geometry"/>
+        </mxCell>
+        <mxCell id="c3_repoport" value="&lt;font style=&quot;font-size: 14px&quot;&gt;&lt;b&gt;WarehouseRepositoryPort&lt;/b&gt;&lt;/font&gt;&lt;div&gt;[Outbound Port]&lt;/div&gt;&lt;br&gt;&lt;div&gt;&lt;font style=&quot;font-size: 11px&quot;&gt;Contrato para órdenes, spots, inventario, grafo y rutas.&lt;/font&gt;&lt;/div&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#8C8496;fontColor=#ffffff;align=center;arcSize=10;strokeColor=#736782;" vertex="1" parent="1">
+          <mxGeometry x="1450" y="210" width="330" height="105" as="geometry"/>
+        </mxCell>
+        <mxCell id="c3_robotport" value="&lt;font style=&quot;font-size: 14px&quot;&gt;&lt;b&gt;RobotStatusPort&lt;/b&gt;&lt;/font&gt;&lt;div&gt;[Outbound Port]&lt;/div&gt;&lt;br&gt;&lt;div&gt;&lt;font style=&quot;font-size: 11px&quot;&gt;Consulta batería, disponibilidad, posición y estado operativo.&lt;/font&gt;&lt;/div&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#8C8496;fontColor=#ffffff;align=center;arcSize=10;strokeColor=#736782;" vertex="1" parent="1">
+          <mxGeometry x="1450" y="345" width="330" height="105" as="geometry"/>
+        </mxCell>
+        <mxCell id="c3_eventport" value="&lt;font style=&quot;font-size: 14px&quot;&gt;&lt;b&gt;RouteEventPublisherPort&lt;/b&gt;&lt;/font&gt;&lt;div&gt;[Outbound Port]&lt;/div&gt;&lt;br&gt;&lt;div&gt;&lt;font style=&quot;font-size: 11px&quot;&gt;Publica eventos de ruta completada para analítica.&lt;/font&gt;&lt;/div&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#8C8496;fontColor=#ffffff;align=center;arcSize=10;strokeColor=#736782;" vertex="1" parent="1">
+          <mxGeometry x="1450" y="480" width="330" height="105" as="geometry"/>
+        </mxCell>
+        <mxCell id="c3_webhookport" value="&lt;font style=&quot;font-size: 14px&quot;&gt;&lt;b&gt;WebhookNotificationPort&lt;/b&gt;&lt;/font&gt;&lt;div&gt;[Outbound Port]&lt;/div&gt;&lt;br&gt;&lt;div&gt;&lt;font style=&quot;font-size: 11px&quot;&gt;Notifica ERP/WMS cuando una orden o ruta finaliza.&lt;/font&gt;&lt;/div&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#8C8496;fontColor=#ffffff;align=center;arcSize=10;strokeColor=#736782;" vertex="1" parent="1">
+          <mxGeometry x="1450" y="615" width="330" height="105" as="geometry"/>
+        </mxCell>
+        <mxCell id="c3_metricsport" value="&lt;font style=&quot;font-size: 14px&quot;&gt;&lt;b&gt;MetricsPort&lt;/b&gt;&lt;/font&gt;&lt;div&gt;[Outbound Port]&lt;/div&gt;&lt;br&gt;&lt;div&gt;&lt;font style=&quot;font-size: 11px&quot;&gt;Expone métricas de asignación, latencia y rutas.&lt;/font&gt;&lt;/div&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#8C8496;fontColor=#ffffff;align=center;arcSize=10;strokeColor=#736782;" vertex="1" parent="1">
+          <mxGeometry x="1450" y="750" width="330" height="105" as="geometry"/>
+        </mxCell>
+        <mxCell id="c3_pgadapter" value="&lt;font style=&quot;font-size: 14px&quot;&gt;&lt;b&gt;PostgresWarehouseAdapter&lt;/b&gt;&lt;/font&gt;&lt;div&gt;[Outbound Adapter]&lt;/div&gt;&lt;br&gt;&lt;div&gt;&lt;font style=&quot;font-size: 11px&quot;&gt;Implementa persistencia relacional con Spring Data JPA.&lt;/font&gt;&lt;/div&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1061B0;fontColor=#ffffff;align=center;arcSize=10;strokeColor=#0D5091;" vertex="1" parent="1">
+          <mxGeometry x="1850" y="205" width="260" height="105" as="geometry"/>
+        </mxCell>
+        <mxCell id="c3_robotadapter" value="&lt;font style=&quot;font-size: 14px&quot;&gt;&lt;b&gt;RobotStatusRestAdapter&lt;/b&gt;&lt;/font&gt;&lt;div&gt;[Outbound Adapter]&lt;/div&gt;&lt;br&gt;&lt;div&gt;&lt;font style=&quot;font-size: 11px&quot;&gt;WebClient/Feign hacia MS-RobotStatus.&lt;/font&gt;&lt;/div&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1061B0;fontColor=#ffffff;align=center;arcSize=10;strokeColor=#0D5091;" vertex="1" parent="1">
+          <mxGeometry x="1850" y="340" width="260" height="105" as="geometry"/>
+        </mxCell>
+        <mxCell id="c3_natsadapter" value="&lt;font style=&quot;font-size: 14px&quot;&gt;&lt;b&gt;NatsRouteEventPublisher&lt;/b&gt;&lt;/font&gt;&lt;div&gt;[Outbound Adapter]&lt;/div&gt;&lt;br&gt;&lt;div&gt;&lt;font style=&quot;font-size: 11px&quot;&gt;Publica eventos route.completed.&lt;/font&gt;&lt;/div&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1061B0;fontColor=#ffffff;align=center;arcSize=10;strokeColor=#0D5091;" vertex="1" parent="1">
+          <mxGeometry x="1850" y="475" width="260" height="105" as="geometry"/>
+        </mxCell>
+        <mxCell id="c3_hookadapter" value="&lt;font style=&quot;font-size: 14px&quot;&gt;&lt;b&gt;OutboundWebhookAdapter&lt;/b&gt;&lt;/font&gt;&lt;div&gt;[Outbound Adapter]&lt;/div&gt;&lt;br&gt;&lt;div&gt;&lt;font style=&quot;font-size: 11px&quot;&gt;Envía notificaciones HTTP al ERP/WMS.&lt;/font&gt;&lt;/div&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1061B0;fontColor=#ffffff;align=center;arcSize=10;strokeColor=#0D5091;" vertex="1" parent="1">
+          <mxGeometry x="1850" y="610" width="260" height="105" as="geometry"/>
+        </mxCell>
+        <mxCell id="c3_metricsadapter" value="&lt;font style=&quot;font-size: 14px&quot;&gt;&lt;b&gt;MicrometerMetricsAdapter&lt;/b&gt;&lt;/font&gt;&lt;div&gt;[Outbound Adapter]&lt;/div&gt;&lt;br&gt;&lt;div&gt;&lt;font style=&quot;font-size: 11px&quot;&gt;Métricas para Prometheus/Grafana.&lt;/font&gt;&lt;/div&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1061B0;fontColor=#ffffff;align=center;arcSize=10;strokeColor=#0D5091;" vertex="1" parent="1">
+          <mxGeometry x="1850" y="745" width="260" height="105" as="geometry"/>
+        </mxCell>
+        <mxCell id="c3_pgdb" value="&lt;font style=&quot;font-size: 16px&quot;&gt;&lt;b&gt;Warehouse Database&lt;/b&gt;&lt;/font&gt;&lt;div&gt;[PostgreSQL]&lt;/div&gt;&lt;br&gt;&lt;div&gt;&lt;font style=&quot;font-size: 11px&quot;&gt;Tablas: dispatch_order, item, spot, spot_item, root_point, route_edge, route_plan.&lt;/font&gt;&lt;/div&gt;" style="shape=cylinder3;size=15;whiteSpace=wrap;html=1;boundedLbl=1;rounded=0;fillColor=#23A2D9;fontSize=12;fontColor=#ffffff;align=center;strokeColor=#0E7DAD;" vertex="1" parent="1">
+          <mxGeometry x="400" y="1305" width="360" height="125" as="geometry"/>
+        </mxCell>
+        <mxCell id="c3_robotms" value="&lt;font style=&quot;font-size: 16px&quot;&gt;&lt;b&gt;MS-RobotStatus&lt;/b&gt;&lt;/font&gt;&lt;div&gt;[External Container]&lt;/div&gt;&lt;br&gt;&lt;div&gt;&lt;font style=&quot;font-size: 11px&quot;&gt;Microservicio síncrono para validar batería y disponibilidad.&lt;/font&gt;&lt;/div&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#8C8496;fontColor=#ffffff;align=center;arcSize=10;strokeColor=#736782;" vertex="1" parent="1">
+          <mxGeometry x="880" y="1305" width="360" height="125" as="geometry"/>
+        </mxCell>
+        <mxCell id="c3_nats" value="&lt;font style=&quot;font-size: 16px&quot;&gt;&lt;b&gt;NATS&lt;/b&gt;&lt;/font&gt;&lt;div&gt;[Message Broker]&lt;/div&gt;&lt;br&gt;&lt;div&gt;&lt;font style=&quot;font-size: 11px&quot;&gt;Broker para eventos de rutas completadas.&lt;/font&gt;&lt;/div&gt;" style="shape=mxgraph.c4.queue;html=1;whiteSpace=wrap;fillColor=#0B875B;strokeColor=#076C49;fontColor=#ffffff;align=center;" vertex="1" parent="1">
+          <mxGeometry x="1320" y="1320" width="280" height="95" as="geometry"/>
+        </mxCell>
+        <mxCell id="c3_webhookext" value="&lt;font style=&quot;font-size: 16px&quot;&gt;&lt;b&gt;ERP / WMS Externo&lt;/b&gt;&lt;/font&gt;&lt;div&gt;[Webhook Receiver]&lt;/div&gt;&lt;br&gt;&lt;div&gt;&lt;font style=&quot;font-size: 11px&quot;&gt;Sistema externo notificado al completar despacho.&lt;/font&gt;&lt;/div&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#8C8496;fontColor=#ffffff;align=center;arcSize=10;strokeColor=#736782;" vertex="1" parent="1">
+          <mxGeometry x="1710" y="1305" width="360" height="125" as="geometry"/>
+        </mxCell>
+        <mxCell id="c3_e1" value="Invoca caso de uso" style="endArrow=blockThin;html=1;rounded=0;endFill=1;strokeColor=#828282;fontSize=10;labelBackgroundColor=#ffffff;edgeStyle=orthogonalEdgeStyle;" edge="1" parent="1" source="c3_rest" target="c3_dispatchsvc">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="c3_e2" value="Crea orden externa" style="endArrow=blockThin;html=1;rounded=0;endFill=1;strokeColor=#828282;fontSize=10;labelBackgroundColor=#ffffff;edgeStyle=orthogonalEdgeStyle;" edge="1" parent="1" source="c3_hookin" target="c3_dispatchsvc">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="c3_e3" value="Solicita recálculo" style="endArrow=blockThin;html=1;rounded=0;endFill=1;strokeColor=#828282;fontSize=10;labelBackgroundColor=#ffffff;edgeStyle=orthogonalEdgeStyle;" edge="1" parent="1" source="c3_scheduler" target="c3_routesvc">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="c3_e4" value="Solicita robot" style="endArrow=blockThin;html=1;rounded=0;endFill=1;strokeColor=#828282;fontSize=10;labelBackgroundColor=#ffffff;edgeStyle=orthogonalEdgeStyle;" edge="1" parent="1" source="c3_dispatchsvc" target="c3_assignsvc">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="c3_e5" value="Robot asignado" style="endArrow=blockThin;html=1;rounded=0;endFill=1;strokeColor=#828282;fontSize=10;labelBackgroundColor=#ffffff;edgeStyle=orthogonalEdgeStyle;" edge="1" parent="1" source="c3_assignsvc" target="c3_routesvc">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="c3_e6" value="Reserva spots" style="endArrow=blockThin;html=1;rounded=0;endFill=1;strokeColor=#828282;fontSize=10;labelBackgroundColor=#ffffff;edgeStyle=orthogonalEdgeStyle;" edge="1" parent="1" source="c3_routesvc" target="c3_inventorysvc">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="c3_e7" value="Usa" style="endArrow=blockThin;html=1;rounded=0;endFill=1;strokeColor=#828282;fontSize=10;labelBackgroundColor=#ffffff;edgeStyle=orthogonalEdgeStyle;" edge="1" parent="1" source="c3_dispatchsvc" target="c3_domain1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="c3_e8" value="Usa" style="endArrow=blockThin;html=1;rounded=0;endFill=1;strokeColor=#828282;fontSize=10;labelBackgroundColor=#ffffff;edgeStyle=orthogonalEdgeStyle;" edge="1" parent="1" source="c3_inventorysvc" target="c3_domain2">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="c3_e9" value="Usa" style="endArrow=blockThin;html=1;rounded=0;endFill=1;strokeColor=#828282;fontSize=10;labelBackgroundColor=#ffffff;edgeStyle=orthogonalEdgeStyle;" edge="1" parent="1" source="c3_routesvc" target="c3_domain3">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="c3_e10" value="Genera" style="endArrow=blockThin;html=1;rounded=0;endFill=1;strokeColor=#828282;fontSize=10;labelBackgroundColor=#ffffff;edgeStyle=orthogonalEdgeStyle;" edge="1" parent="1" source="c3_routesvc" target="c3_domain4">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="c3_e11" value="Aplica" style="endArrow=blockThin;html=1;rounded=0;endFill=1;strokeColor=#828282;fontSize=10;labelBackgroundColor=#ffffff;edgeStyle=orthogonalEdgeStyle;" edge="1" parent="1" source="c3_assignsvc" target="c3_policy">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="c3_e12" value="Persiste/consulta" style="endArrow=blockThin;html=1;rounded=0;endFill=1;strokeColor=#828282;fontSize=10;labelBackgroundColor=#ffffff;edgeStyle=orthogonalEdgeStyle;" edge="1" parent="1" source="c3_dispatchsvc" target="c3_repoport">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="c3_e13" value="Consulta batería" style="endArrow=blockThin;html=1;rounded=0;endFill=1;strokeColor=#828282;fontSize=10;labelBackgroundColor=#ffffff;edgeStyle=orthogonalEdgeStyle;strokeColor=#0D5091;" edge="1" parent="1" source="c3_assignsvc" target="c3_robotport">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="c3_e14" value="Publica evento" style="endArrow=blockThin;html=1;rounded=0;endFill=1;strokeColor=#828282;fontSize=10;labelBackgroundColor=#ffffff;edgeStyle=orthogonalEdgeStyle;strokeColor=#076C49;dashed=1;" edge="1" parent="1" source="c3_routesvc" target="c3_eventport">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="c3_e15" value="Notifica estado" style="endArrow=blockThin;html=1;rounded=0;endFill=1;strokeColor=#828282;fontSize=10;labelBackgroundColor=#ffffff;edgeStyle=orthogonalEdgeStyle;" edge="1" parent="1" source="c3_dispatchsvc" target="c3_webhookport">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="c3_e16" value="Registra métrica" style="endArrow=blockThin;html=1;rounded=0;endFill=1;strokeColor=#828282;fontSize=10;labelBackgroundColor=#ffffff;edgeStyle=orthogonalEdgeStyle;strokeColor=#666666;dashed=1;" edge="1" parent="1" source="c3_dispatchsvc" target="c3_metricsport">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="c3_e17" value="Implementa" style="endArrow=blockThin;html=1;rounded=0;endFill=1;strokeColor=#828282;fontSize=10;labelBackgroundColor=#ffffff;edgeStyle=orthogonalEdgeStyle;" edge="1" parent="1" source="c3_repoport" target="c3_pgadapter">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="c3_e18" value="Implementa" style="endArrow=blockThin;html=1;rounded=0;endFill=1;strokeColor=#828282;fontSize=10;labelBackgroundColor=#ffffff;edgeStyle=orthogonalEdgeStyle;" edge="1" parent="1" source="c3_robotport" target="c3_robotadapter">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="c3_e19" value="Implementa" style="endArrow=blockThin;html=1;rounded=0;endFill=1;strokeColor=#828282;fontSize=10;labelBackgroundColor=#ffffff;edgeStyle=orthogonalEdgeStyle;strokeColor=#076C49;dashed=1;" edge="1" parent="1" source="c3_eventport" target="c3_natsadapter">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="c3_e20" value="Implementa" style="endArrow=blockThin;html=1;rounded=0;endFill=1;strokeColor=#828282;fontSize=10;labelBackgroundColor=#ffffff;edgeStyle=orthogonalEdgeStyle;" edge="1" parent="1" source="c3_webhookport" target="c3_hookadapter">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="c3_e21" value="Implementa" style="endArrow=blockThin;html=1;rounded=0;endFill=1;strokeColor=#828282;fontSize=10;labelBackgroundColor=#ffffff;edgeStyle=orthogonalEdgeStyle;strokeColor=#666666;dashed=1;" edge="1" parent="1" source="c3_metricsport" target="c3_metricsadapter">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="c3_e22" value="SQL/JPA" style="endArrow=blockThin;html=1;rounded=0;endFill=1;strokeColor=#828282;fontSize=10;labelBackgroundColor=#ffffff;edgeStyle=orthogonalEdgeStyle;" edge="1" parent="1" source="c3_pgadapter" target="c3_pgdb">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="c3_e23" value="REST síncrono" style="endArrow=blockThin;html=1;rounded=0;endFill=1;strokeColor=#828282;fontSize=10;labelBackgroundColor=#ffffff;edgeStyle=orthogonalEdgeStyle;strokeColor=#0D5091;" edge="1" parent="1" source="c3_robotadapter" target="c3_robotms">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="c3_e24" value="route.completed" style="endArrow=blockThin;html=1;rounded=0;endFill=1;strokeColor=#828282;fontSize=10;labelBackgroundColor=#ffffff;edgeStyle=orthogonalEdgeStyle;strokeColor=#076C49;dashed=1;" edge="1" parent="1" source="c3_natsadapter" target="c3_nats">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="c3_e25" value="HTTP Webhook" style="endArrow=blockThin;html=1;rounded=0;endFill=1;strokeColor=#828282;fontSize=10;labelBackgroundColor=#ffffff;edgeStyle=orthogonalEdgeStyle;" edge="1" parent="1" source="c3_hookadapter" target="c3_webhookext">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
