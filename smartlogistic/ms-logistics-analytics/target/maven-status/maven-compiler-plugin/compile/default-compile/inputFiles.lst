@@ -1,0 +1,12 @@
+/project/ms-logistics-analytics/src/main/java/com/smartlogistics/analytics/SmartLogisticLogisticsAnalyticsApplication.java
+/project/ms-logistics-analytics/src/main/java/com/smartlogistics/analytics/application/port/in/ProcessRouteEventUseCase.java
+/project/ms-logistics-analytics/src/main/java/com/smartlogistics/analytics/application/port/out/AnalyticsRepositoryPort.java
+/project/ms-logistics-analytics/src/main/java/com/smartlogistics/analytics/application/service/AnalyticsService.java
+/project/ms-logistics-analytics/src/main/java/com/smartlogistics/analytics/domain/exception/EventProcessingException.java
+/project/ms-logistics-analytics/src/main/java/com/smartlogistics/analytics/domain/model/CongestionSample.java
+/project/ms-logistics-analytics/src/main/java/com/smartlogistics/analytics/domain/model/RouteEvent.java
+/project/ms-logistics-analytics/src/main/java/com/smartlogistics/analytics/infrastructure/adapter/in/amqp/RouteEventConsumer.java
+/project/ms-logistics-analytics/src/main/java/com/smartlogistics/analytics/infrastructure/adapter/out/mongodb/MongoRouteEventAdapter.java
+/project/ms-logistics-analytics/src/main/java/com/smartlogistics/analytics/infrastructure/adapter/out/mongodb/RouteEventDocument.java
+/project/ms-logistics-analytics/src/main/java/com/smartlogistics/analytics/infrastructure/config/AnalyticsConfig.java
+/project/ms-logistics-analytics/src/main/java/com/smartlogistics/analytics/infrastructure/config/BeanConfig.java

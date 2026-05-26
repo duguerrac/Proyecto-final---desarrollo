@@ -1,0 +1,6 @@
+/project/ms-logistics-analytics/src/test/java/com/smartlogistics/analytics/application/service/AnalyticsServiceTest.java
+/project/ms-logistics-analytics/src/test/java/com/smartlogistics/analytics/domain/exception/EventProcessingExceptionTest.java
+/project/ms-logistics-analytics/src/test/java/com/smartlogistics/analytics/domain/model/CongestionSampleTest.java
+/project/ms-logistics-analytics/src/test/java/com/smartlogistics/analytics/domain/model/RouteEventTest.java
+/project/ms-logistics-analytics/src/test/java/com/smartlogistics/analytics/infrastructure/adapter/in/amqp/RouteEventConsumerTest.java
+/project/ms-logistics-analytics/src/test/java/com/smartlogistics/analytics/infrastructure/adapter/out/mongodb/MongoRouteEventAdapterTest.java

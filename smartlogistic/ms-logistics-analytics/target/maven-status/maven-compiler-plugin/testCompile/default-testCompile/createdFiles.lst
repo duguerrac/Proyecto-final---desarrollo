@@ -1,0 +1,6 @@
+com/smartlogistics/analytics/application/service/AnalyticsServiceTest.class
+com/smartlogistics/analytics/domain/exception/EventProcessingExceptionTest.class
+com/smartlogistics/analytics/domain/model/CongestionSampleTest.class
+com/smartlogistics/analytics/infrastructure/adapter/out/mongodb/MongoRouteEventAdapterTest.class
+com/smartlogistics/analytics/infrastructure/adapter/in/amqp/RouteEventConsumerTest.class
+com/smartlogistics/analytics/domain/model/RouteEventTest.class
