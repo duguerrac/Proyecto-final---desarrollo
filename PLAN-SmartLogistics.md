@@ -6,20 +6,26 @@
 Phase A: Foundation (Docker Compose + DBs + NATS)
     └── Fase base, nada depende de ella
             │
+Phase A.5: MS-Identity (JWT + PostgreSQL auth_db)
+    └── Depende de: Phase A (PostgreSQL auth_db, red Docker)
+    └── Independiente, puede ejecutarse en paralelo con B
+            │
 Phase B: MS-RobotStatus (Redis + REST)
     └── Depende de: Phase A (Redis, red Docker)
-    └── Es independiente, puede ejecutarse en paralelo con C
+    └── Independiente, puede ejecutarse en paralelo con A.5 y C
             │
 Phase C: MS-WarehouseCore (Hexagonal + PostgreSQL) ◄── sync ── Phase B
-    └── Depende de: Phase A (PostgreSQL, NATS), Phase B (consulta REST)
+    └── Depende de: Phase A (PostgreSQL warehouse_db, NATS)
+    └── Depende de: Phase B (consulta REST a RobotStatus)
     └── Puede empezar con RobotStatusPort mockeado mientras B no esté listo
             │
 Phase D: MS-LogisticsAnalytics (NATS + MongoDB) ◄── event ── Phase C
     └── Depende de: Phase A (MongoDB, NATS)
     └── Depende del schema del evento route.completed (definido en C)
             │
-Phase E: Nginx Gateway ──── proxy to ──── Phase C
-    └── Depende de: Phase C (API expuesta)
+Phase E: Nginx Gateway ──── auth_request ──── Phase A.5
+         ──── proxy to ──── Phase C
+    └── Depende de: Phase A.5 (validate endpoint), Phase C (API expuesta)
             │
 Phase F: Observabilidad ──── all services running ────
     └── Depende de: Todas las fases anteriores activas
@@ -45,6 +51,38 @@ Phase F: Observabilidad ──── all services running ────
 ```
 docker compose up
 docker compose ps  # Todos los servicios "running"
+```
+
+---
+
+### Fase A.5: MS-Identity (Medio — 1-2 sesiones)
+**Responsable:** Integrante 2
+
+**Entregables:**
+- Proyecto Spring Boot con:
+  - `User` entity (id, username, password_hash, role) persistido en PostgreSQL auth_db
+  - `AuthController` (POST /api/auth/register, POST /api/auth/login, POST /api/auth/validate)
+  - `JwtService` — genera y valida tokens JWT con HMAC-SHA256
+  - `AuthService` — registro con BCrypt, login con validación de credenciales
+  - Endpoint `/api/auth/validate` (uso interno) — recibe JWT en header Authorization, devuelve 200 + X-Auth-User si es válido, 401 si no
+- Dockerfile
+- pom.xml con dependencias: spring-boot-starter-web, spring-boot-starter-data-jpa, postgresql, jjwt, spring-security-crypto (BCrypt), prometheus actuator
+
+**Verificación:**
+```bash
+curl -X POST http://localhost:8084/api/auth/register \
+  -H "Content-Type: application/json" \
+  -d "{\"username\":\"operador\",\"password\":\"123456\",\"role\":\"OPERATOR\"}" → 201
+
+curl -X POST http://localhost:8084/api/auth/login \
+  -H "Content-Type: application/json" \
+  -d "{\"username\":\"operador\",\"password\":\"123456\"}" → 200 + { "token": "eyJ..." }
+
+curl -X POST http://localhost:8084/api/auth/validate \
+  -H "Authorization: Bearer eyJ..." → 200 + X-Auth-User: operador
+
+curl -X POST http://localhost:8084/api/auth/validate \
+  -H "Authorization: Bearer TOKEN_INVALIDO" → 401
 ```
 
 ---
@@ -136,15 +174,27 @@ docker exec -it mongodb mongosh logistics_analytics --eval "db.route_events.find
 **Entregables:**
 - `nginx/nginx.conf`:
   - Server en puerto 80
-  - Location `/api/` → proxy_pass a ms-warehouse-core:8081
+  - Location `/api/auth/` → proxy_pass directo a ms-identity:8084 (sin auth)
+  - Location `/api/` → auth_request a `/api/auth/validate` (ms-identity) + proxy_pass a ms-warehouse-core:8081
+  - Location `=/api/auth/validate` → interno (internal), proxy_pass a ms-identity
   - CORS headers para desarrollo
   - Timeouts configurados
+  - Forward del header Authorization en auth_request
 - `nginx/Dockerfile` (imagen nginx:1.27-alpine con config)
 - Actualización de `docker-compose.yml` para incluir nginx
 
 **Verificación:**
 ```bash
-curl http://localhost:8080/api/orders → 200 (misma respuesta que directo a :8081)
+# Sin JWT → 401
+curl http://localhost:8080/api/orders → 401
+
+# Login primero
+TOKEN=$(curl -s -X POST http://localhost:8080/api/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"username":"operador","password":"123456"}' | jq -r '.token')
+
+# Con JWT válido → pasa a WarehouseCore
+curl http://localhost:8080/api/orders -H "Authorization: Bearer $TOKEN" → 200
 ```
 
 ---
@@ -178,8 +228,8 @@ Abrir http://localhost:3000 → Grafana, datasources configurados
 | Integrante | Fases | Qué sustenta |
 |---|---|---|
 | **Integrante 1** | C (WarehouseCore) | Hexagonal, dominio, políticas de negocio, Dijkstra, outbox |
-| **Integrante 2** | A, D, F | Docker Compose, NATS, MongoDB, Prometheus/Grafana/Loki |
-| **Integrante 3** | B, E | REST con Redis, Nginx, documentación APIs |
+| **Integrante 2** | A, A.5, D, F | Docker Compose, MS-Identity + JWT, NATS, MongoDB, Prometheus/Grafana/Loki |
+| **Integrante 3** | B, E | REST con Redis, Nginx + auth_request, documentación APIs |
 
 ## Riesgos y Mitigaciones
 
@@ -191,3 +241,5 @@ Abrir http://localhost:3000 → Grafana, datasources configurados
 | Tiempo insuficiente para observabilidad | Media | Medio | Desde Fase A agregar actuator/prometheus en cada pom.xml |
 | Integración entre 3 personas conflictiva | Alta | Alto | Contratos API congelados en spec; demo-flow.http como prueba única |
 | MS-RobotStatus no responde y WarehouseCore falla | Media | Medio | Timeouts cortos + fallar con 409 (no asignar) ante timeout |
+| JWT sin firma adecuada o expirado | Media | Alto | Usar HMAC-SHA256 con clave configurada en .env |
+| Nginx auth_request mal configurado | Alta | Crítico | Probar auth_request con curl sin JWT primero |

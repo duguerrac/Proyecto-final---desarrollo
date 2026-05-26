@@ -2,15 +2,17 @@
 
 ## Objective
 
-Construir el backend de **SmartLogistics**, un sistema de coordinación de almacenes autónomos con 3 microservicios que gestionan órdenes de despacho, robots autónomos y analítica logística. Las pruebas se realizan vía HTTP (Postman/curl). Sin frontend.
+Construir el backend de **SmartLogistics**, un sistema de coordinación de almacenes autónomos con 4 microservicios que gestionan autenticación, órdenes de despacho, robots autónomos y analítica logística. Las pruebas se realizan vía HTTP (Postman/curl). Sin frontend.
 
 ### Success Criteria
 
-- Crear orden de despacho con ítems
-- Asignar robot validando batería >= 15% (sync vía MS-RobotStatus)
-- Rechazar asignación si batería < 15%
-- Calcular ruta con Dijkstra sobre root points
-- Cerrar ruta, descontar stock y publicar evento `route.completed` a NATS
+- MS-Identity registra usuarios y emite JWT válidos
+- Nginx protege `/api/*` con auth_request (JWT), solo `/api/auth/*` es público
+- Crear orden de despacho con ítems (requiere JWT)
+- Asignar robot validando batería >= 15% (sync vía MS-RobotStatus, requiere JWT)
+- Rechazar asignación si batería < 15% (requiere JWT)
+- Calcular ruta con Dijkstra sobre root points (requiere JWT)
+- Cerrar ruta, descontar stock y publicar evento `route.completed` a NATS (requiere JWT)
 - MS-LogisticsAnalytics consume el evento y lo persiste en MongoDB
 - Todo el sistema levanta con `docker compose up`
 - Métricas en Prometheus + dashboard en Grafana + logs en Loki
@@ -21,14 +23,16 @@ Construir el backend de **SmartLogistics**, un sistema de coordinación de almac
 |---|---|
 | Lenguaje | Java 17+ |
 | Framework | Spring Boot 3.x |
+| MS Auth | MS-Identity (JWT + BCrypt) |
 | MS Principal | MS-WarehouseCore (Arquitectura Hexagonal) |
 | MS Síncrono | MS-RobotStatus (REST) |
 | MS Asíncrono | MS-LogisticsAnalytics (NATS consumer) |
-| Base datos Core | PostgreSQL 16 |
+| Base datos Auth | PostgreSQL 16 (auth_db) |
+| Base datos Core | PostgreSQL 16 (warehouse_db) |
 | Cache/Estado | Redis 7 |
 | Base datos Analytics | MongoDB 7 |
 | Broker | NATS 2.x |
-| API Gateway | Nginx 1.27 (reverse proxy) |
+| API Gateway | Nginx 1.27 (reverse proxy + auth_request) |
 | Observabilidad | Prometheus + Grafana + Loki |
 | Contenedores | Docker Compose |
 
@@ -36,6 +40,7 @@ Construir el backend de **SmartLogistics**, un sistema de coordinación de almac
 
 ```bash
 # Build all services
+cd ms-identity && mvn clean package -DskipTests
 cd ms-warehouse-core && mvn clean package -DskipTests
 cd ms-robot-status && mvn clean package -DskipTests
 cd ms-logistics-analytics && mvn clean package -DskipTests
@@ -43,9 +48,19 @@ cd ms-logistics-analytics && mvn clean package -DskipTests
 # Full system
 docker compose up --build
 
-# Test endpoints
+# Test: registrar usuario y obtener JWT
+curl -X POST http://localhost:8080/api/auth/register ^
+  -H "Content-Type: application/json" ^
+  -d "{\"username\":\"operador\",\"password\":\"123456\",\"role\":\"OPERATOR\"}"
+
+curl -X POST http://localhost:8080/api/auth/login ^
+  -H "Content-Type: application/json" ^
+  -d "{\"username\":\"operador\",\"password\":\"123456\"}"
+
+# Test: crear orden con JWT
 curl -X POST http://localhost:8080/api/orders ^
   -H "Content-Type: application/json" ^
+  -H "Authorization: Bearer <JWT>" ^
   -d @scripts/demo-flow.json
 
 # Stop and clean
@@ -55,16 +70,27 @@ docker compose down -v
 ## Project Structure
 
 ```
-smartlogistics/
+smartlogistic/
 ├── docker-compose.yml
 ├── .env.example
 ├── README.md
 ├── docs/
 │   ├── RFC-SmartLogistics.md
+│   ├── diagrama-arquitectura.md
 │   └── C4/
 ├── nginx/
 │   ├── Dockerfile
 │   └── nginx.conf
+├── ms-identity/
+│   ├── Dockerfile
+│   ├── pom.xml
+│   └── src/main/java/com/smartlogistics/identity/
+│       ├── controller/    # AuthController (login, register, validate)
+│       ├── service/       # AuthService, JwtService
+│       ├── model/         # User entity
+│       ├── repository/    # UserRepository (PostgreSQL)
+│       ├── dto/           # LoginRequest, RegisterRequest, AuthResponse
+│       └── config/        # SecurityConfig, JwtConfig
 ├── ms-warehouse-core/
 │   ├── Dockerfile
 │   ├── pom.xml
@@ -109,7 +135,22 @@ smartlogistics/
 
 ## API Contracts
 
-### MS-WarehouseCore (via Nginx `/api/`)
+### Nginx Routing
+
+| Ruta pública | Destino | Auth |
+|---|---|---|
+| `/api/auth/*` | MS-Identity | No requiere JWT |
+| `/api/*` (excepto auth) | MS-WarehouseCore | Requiere JWT (validado por auth_request) |
+
+### MS-Identity (via Nginx `/api/auth/`)
+
+| Método | Endpoint | Descripción |
+|---|---|---|
+| `POST` | `/api/auth/register` | Registrar nuevo usuario |
+| `POST` | `/api/auth/login` | Login → devuelve JWT |
+| `POST` | `/api/auth/validate` | Validar JWT (uso interno, Nginx auth_request) |
+
+### MS-WarehouseCore (via Nginx `/api/`, requiere JWT)
 
 | Método | Endpoint | Descripción |
 |---|---|---|
@@ -150,7 +191,13 @@ smartlogistics/
 
 ## Data Model
 
-### PostgreSQL (MS-WarehouseCore)
+### PostgreSQL (MS-Identity) — `auth_db`
+
+| Tabla | Propósito | Campos clave |
+|---|---|---|
+| `users` | Usuarios del sistema | id, username, password_hash, role, created_at |
+
+### PostgreSQL (MS-WarehouseCore) — `warehouse_db`
 
 | Tabla | Propósito | Campos clave |
 |---|---|---|
@@ -246,8 +293,11 @@ class OrderController {
 |---|---|
 | Broker | NATS |
 | Analytics DB | MongoDB |
-| API Gateway | Nginx (incluido) |
-| Frontend | Fuera de scope |
+| API Gateway | Nginx con auth_request |
+| Auth | MS-Identity + JWT + BCrypt |
+| Auth DB | PostgreSQL separada (auth_db) |
+| Validación JWT | En Nginx via auth_request interno |
+| Frontend | Fuera de scope (se agregará después) |
 | Algoritmo de ruta | Dijkstra |
 | Webhook ERP | No incluido en MVP. Documentado como puerto hexagonal |
 | Descuento de stock | Reservar al asignar, descontar al completar |

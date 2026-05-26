@@ -23,10 +23,74 @@
 
 ### Task A.3 — Crear demo-flow.http para pruebas manuales
 
-- **Acceptance**: Archivo HTTP client con requests para todo el flujo: crear orden, asignar robot, calcular ruta, completar ruta
+- **Acceptance**: Archivo HTTP client con requests para todo el flujo: register, login, crear orden, asignar robot, calcular ruta, completar ruta
 - **Verify**: Abrir en VS Code con REST Client extension y probar cada request
 - **Files**:
   - `smartlogistics/scripts/demo-flow.http`
+
+---
+
+## Fase A.5: MS-Identity (Auth con JWT)
+
+### Task A.5.1 — Agregar auth-db al docker-compose.yml
+
+- **Acceptance**: `docker compose up` levanta PostgreSQL auth-db en puerto 5433
+- **Verify**: `curl localhost:5433` no existe, pero `docker compose ps` muestra auth-db running
+- **Files**:
+  - `smartlogistics/docker-compose.yml` (agregar servicio auth-db)
+
+### Task A.5.2 — Inicializar proyecto Spring Boot ms-identity
+
+- **Acceptance**: `mvn clean compile` sin errores. Dependencias: web, data-jpa, postgresql, jjwt, spring-security-crypto, actuator, prometheus
+- **Verify**: `mvn test` pasa
+- **Files**:
+  - `smartlogistics/ms-identity/pom.xml`
+  - `smartlogistics/ms-identity/Dockerfile`
+
+### Task A.5.3 — Implementar User entity y repositorio
+
+- **Acceptance**: Entidad `User` con id, username, password_hash, role. `UserRepository` con findByUsername
+- **Verify**: Test de integración: inserta usuario en H2/PostgreSQL, consulta por username
+- **Files**:
+  - `ms-identity/src/main/java/.../model/User.java`
+  - `ms-identity/src/main/java/.../repository/UserRepository.java`
+
+### Task A.5.4 — Implementar AuthService y JwtService
+
+- **Acceptance**:
+  - `register()`: hashea password con BCrypt, persiste usuario, retorna User
+  - `login()`: valida password contra hash, genera JWT con HMAC-SHA256 (claims: username, role, exp 24h)
+  - `validateToken()`: verifica firma, expiración, retorna username si válido
+- **Verify**: Tests unitarios:
+  - register → usuario creado con password hasheado (no texto plano)
+  - login con credenciales correctas → JWT válido
+  - login con password incorrecto → excepción
+  - validateToken con JWT válido → username
+  - validateToken con JWT expirado → excepción
+- **Files**:
+  - `ms-identity/src/main/java/.../service/AuthService.java`
+  - `ms-identity/src/main/java/.../service/JwtService.java`
+  - `ms-identity/src/main/java/.../config/JwtConfig.java`
+  - `ms-identity/src/main/java/.../dto/LoginRequest.java`
+  - `ms-identity/src/main/java/.../dto/RegisterRequest.java`
+  - `ms-identity/src/main/java/.../dto/AuthResponse.java`
+
+### Task A.5.5 — Implementar AuthController
+
+- **Acceptance**:
+  - `POST /api/auth/register` → 201 + usuario creado
+  - `POST /api/auth/login` → 200 + { "token": "eyJ..." }
+  - `POST /api/auth/validate` → 200 + header X-Auth-User si token válido
+  - `POST /api/auth/validate` → 401 si token inválido/expirado
+- **Verify**:
+  ```bash
+  curl -X POST localhost:8084/api/auth/register -H "Content-Type: application/json" -d "{\"username\":\"test\",\"password\":\"pass\",\"role\":\"OPERATOR\"}" → 201
+  curl -X POST localhost:8084/api/auth/login -H "Content-Type: application/json" -d "{\"username\":\"test\",\"password\":\"pass\"}" → 200 + token
+  curl -X POST localhost:8084/api/auth/validate -H "Authorization: Bearer <token>" → 200
+  curl -X POST localhost:8084/api/auth/validate -H "Authorization: Bearer INVALIDO" → 401
+  ```
+- **Files**:
+  - `ms-identity/src/main/java/.../controller/AuthController.java`
 
 ---
 
@@ -176,17 +240,27 @@
 
 ## Fase E: Nginx Gateway
 
-### Task E.1 — Configurar Nginx como reverse proxy
+### Task E.1 — Configurar Nginx como reverse proxy con auth_request JWT
 
-- **Acceptance**: Nginx en puerto 8080. `/api/` → proxy_pass a `ms-warehouse-core:8081`
-- **Verify**: `curl localhost:8080/api/orders` → misma respuesta que directo a puerto 8081
+- **Acceptance**: Nginx en puerto 8080.
+  - `/api/auth/` → proxy_pass directo a `ms-identity:8084` (sin auth)
+  - `/api/` → auth_request a `/api/auth/validate` + proxy_pass a `ms-warehouse-core:8081`
+  - `=/api/auth/validate` → endpoint interno (internal), proxy_pass a `ms-identity:8084/api/auth/validate`
+  - Request sin JWT → 401
+  - Request con JWT válido → pasa a WarehouseCore
+- **Verify**:
+  ```bash
+  curl localhost:8080/api/orders → 401
+  TOKEN=$(curl -s -X POST localhost:8080/api/auth/login -H "Content-Type: application/json" -d '{"username":"operador","password":"123456"}' | jq -r '.token')
+  curl localhost:8080/api/orders -H "Authorization: Bearer $TOKEN" → 200
+  ```
 - **Files**:
   - `smartlogistics/nginx/nginx.conf`
   - `smartlogistics/nginx/Dockerfile`
 
 ### Task E.2 — Integrar Nginx en docker-compose.yml
 
-- **Acceptance**: `docker compose up` incluye nginx. Red interna conecta nginx → warehouse-core
+- **Acceptance**: `docker compose up` incluye nginx. Red interna conecta nginx → ms-identity y warehouse-core
 - **Verify**: `docker compose ps` → nginx running
 - **Files**:
   - `smartlogistics/docker-compose.yml` (actualizar)
