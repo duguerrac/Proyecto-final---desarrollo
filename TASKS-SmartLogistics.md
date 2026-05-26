@@ -8,11 +8,11 @@
 
 ### Task A.1 — Crear docker-compose.yml con servicios base
 
-- **Acceptance**: `docker compose up` levanta PostgreSQL, Redis, MongoDB y NATS sin errores
-- **Verify**: `docker compose ps` → 4 servicios "running"
+- **Acceptance**: `docker compose up` levanta PostgreSQL (warehouse-db + auth-db), Redis, MongoDB y RabbitMQ sin errores
+- **Verify**: `docker compose ps` → 6 servicios "running"
 - **Files**:
-  - `smartlogistics/docker-compose.yml`
-  - `smartlogistics/.env.example`
+  - `smartlogistic/docker-compose.yml`
+  - `smartlogistic/.env.example`
 
 ### Task A.2 — Crear script de datos semilla para PostgreSQL
 
@@ -44,8 +44,8 @@
 - **Acceptance**: `mvn clean compile` sin errores. Dependencias: web, data-jpa, postgresql, jjwt, spring-security-crypto, actuator, prometheus
 - **Verify**: `mvn test` pasa
 - **Files**:
-  - `smartlogistics/ms-identity/pom.xml`
-  - `smartlogistics/ms-identity/Dockerfile`
+  - `smartlogistic/ms-identity/pom.xml`
+  - `smartlogistic/ms-identity/Dockerfile`
 
 ### Task A.5.3 — Implementar User entity y repositorio
 
@@ -206,13 +206,14 @@
 - **Files**:
   - `ms-warehouse-core/src/main/java/.../infrastructure/adapter/out/robotstatus/RobotStatusClient.java`
 
-### Task C.8 — Implementar adaptador NATS (event publisher) + Outbox
+### Task C.8 — Implementar adaptador RabbitMQ (event publisher) + Outbox
 
-- **Acceptance**: `NatsRouteEventPublisher` publica evento `route.completed` al topic NATS
-- **Acceptance**: Outbox pattern: evento se persiste en `outbox_event`, scheduler reintenta publicación si NATS falla
+- **Acceptance**: `RabbitRouteEventPublisher` publica evento `route.completed` al exchange `logistics.exchange` con routing key `route.completed`
+- **Acceptance**: Outbox pattern: evento se persiste en `outbox_event`, scheduler reintenta publicación si RabbitMQ falla
 - **Verify**: Completar ruta, verificar evento en tabla outbox con status PUBLISHED
 - **Files**:
-  - `ms-warehouse-core/src/main/java/.../infrastructure/adapter/out/broker/NatsRouteEventPublisher.java`
+  - `ms-warehouse-core/src/main/java/.../infrastructure/adapter/out/broker/RabbitRouteEventPublisher.java`
+  - `ms-warehouse-core/src/main/java/.../infrastructure/config/RabbitConfig.java`
 
 ---
 
@@ -220,18 +221,19 @@
 
 ### Task D.1 — Inicializar proyecto Spring Boot
 
-- **Acceptance**: Dependencias: web, mongodb, nats-spring, actuator, prometheus
+- **Acceptance**: Dependencias: web, mongodb, amqp, actuator, prometheus
 - **Verify**: `mvn test` pasa
 - **Files**:
-  - `smartlogistics/ms-logistics-analytics/pom.xml`
-  - `smartlogistics/ms-logistics-analytics/Dockerfile`
+  - `smartlogistic/ms-logistics-analytics/pom.xml`
+  - `smartlogistic/ms-logistics-analytics/Dockerfile`
 
-### Task D.2 — Implementar consumer NATS y persistencia MongoDB
+### Task D.2 — Implementar consumer RabbitMQ y persistencia MongoDB
 
-- **Acceptance**: Suscriptor al topic `route.completed`. Deserializa JSON a `RouteEvent` document. Persiste en MongoDB colección `route_events`
+- **Acceptance**: Consumer `@RabbitListener(queues = "route.completed.q")`. Exchange `logistics.exchange` (topic) + queue `route.completed.q` + binding declarados en `RabbitConfig`. Deserializa JSON a `RouteEvent` document. Persiste en MongoDB colección `route_events`
 - **Verify**: Completar ruta → evento aparece en MongoDB
 - **Files**:
-  - `ms-logistics-analytics/src/main/java/.../consumer/NatsRouteEventConsumer.java`
+  - `ms-logistics-analytics/src/main/java/.../consumer/RouteEventConsumer.java`
+  - `ms-logistics-analytics/src/main/java/.../config/RabbitConfig.java`
   - `ms-logistics-analytics/src/main/java/.../model/RouteEvent.java`
   - `ms-logistics-analytics/src/main/java/.../repository/RouteEventRepository.java`
   - `ms-logistics-analytics/src/main/java/.../service/AnalyticsService.java`
@@ -271,10 +273,10 @@
 
 ### Task F.1 — Configurar Prometheus
 
-- **Acceptance**: Prometheus scrapea targets: warehouse-core:8081, robot-status:8082, analytics:8083
+- **Acceptance**: Prometheus scrapea targets: identity:8084, warehouse-core:8081, robot-status:8082, analytics:8083
 - **Verify**: `curl localhost:9090/api/v1/targets` → todos UP
 - **Files**:
-  - `smartlogistics/observability/prometheus.yml`
+  - `smartlogistic/observability/prometheus.yml`
 
 ### Task F.2 — Configurar Loki para logs
 
@@ -292,26 +294,39 @@
   - Rutas completadas en el tiempo
 - **Verify**: `localhost:3000` → dashboard listo sin configuración manual
 - **Files**:
-  - `smartlogistics/observability/grafana/provisioning/datasources/prometheus.yml`
-  - `smartlogistics/observability/grafana/provisioning/datasources/loki.yml`
-  - `smartlogistics/observability/grafana/provisioning/dashboards/smartlogistics.json`
+  - `smartlogistic/observability/grafana/provisioning/datasources/prometheus.yml`
+  - `smartlogistic/observability/grafana/provisioning/datasources/loki.yml`
+  - `smartlogistic/observability/grafana/provisioning/dashboards/smartlogistics.json`
 
 ### Task F.4 — Agregar métricas Actuator en cada MS
 
 - **Acceptance**: Cada microservicio expone `/actuator/prometheus` con métricas HTTP
 - **Verify**: `curl localhost:8081/actuator/prometheus` → métricas visibles
 - **Files**:
+  - `ms-identity/pom.xml` (agregar actuator + micrometer)
   - `ms-warehouse-core/pom.xml` (agregar actuator + micrometer)
   - `ms-robot-status/pom.xml`
   - `ms-logistics-analytics/pom.xml`
   - `application.properties` en cada MS
 
+### Task F.5 — Configurar Jaeger para trazabilidad distribuida
+
+- **Acceptance**: Servicio `jaeger` en docker-compose (image: `jaegertracing/all-in-one`, puertos 16686 + 4318). Cada MS envía trazas via OpenTelemetry OTLP
+- **Verify**:
+  ```bash
+  docker compose up
+  curl localhost:16686/api/services → lista "smartlogistic-*" services
+  ```
+  Abrir `http://localhost:16686` → buscar traza del flujo orden → asignar robot → completar ruta
+- **Files**:
+  - `smartlogistic/docker-compose.yml` (agregar jaeger service)
+  - `pom.xml` de cada MS (agregar micrometer-tracing-bridge-otel, opentelemetry-exporter-otlp)
+  - `application.properties` de cada MS (agregar tracing config)
+
 ---
 
 ## Bonus (si sobra tiempo)
 
-### Task G.1 — Jaeger para trazabilidad distribuida
+### Task G.1 — Pruebas de carga con k6 o vegeta
 
-### Task G.2 — Endpoints simulados de ERP vía NATS consumer adicional
-
-### Task G.3 — Pruebas de carga con k6 o vegeta
+### Task G.2 — Endpoints simulados de ERP vía RabbitMQ consumer adicional

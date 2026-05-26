@@ -11,19 +11,25 @@ graph TB
     end
 
     subgraph "Capa Síncrona (REST)"
+        IDENTITY["🔐 MS-Identity<br/>JWT / :8084"]
         WCORE["🏗️ MS-WarehouseCore<br/>Hexagonal / :8081"]
         ROBOT["🤖 MS-RobotStatus<br/>Redis / :8082"]
     end
 
     subgraph "Capa Asíncrona (Eventos)"
-        NATS["📨 NATS Broker<br/>:4222"]
+        RMQ["📨 RabbitMQ<br/>Exchange: logistics.exchange<br/>Queue: route.completed.q"]
         ANALYTICS["📊 MS-LogisticsAnalytics<br/>MongoDB / :8083"]
     end
 
     subgraph "Persistencia"
-        PG[("🐘 PostgreSQL<br/>warehouse-db:5432")]
+        AUTH_PG[("🐘 PostgreSQL Auth<br/>auth-db:5433")]
+        WH_PG[("🐘 PostgreSQL Warehouse<br/>warehouse-db:5432")]
         RD[("⚡ Redis<br/>robot-redis:6379")]
         MG[("🍃 MongoDB<br/>analytics-db:27017")]
+    end
+
+    subgraph "Trazabilidad"
+        JAEGER["🔍 Jaeger<br/>:16686"]
     end
 
     subgraph "Observabilidad"
@@ -36,21 +42,28 @@ graph TB
         CLIENT["👤 Postman / curl"]
     end
 
-    CLIENT -->|"HTTP :8080/api/*"| NGINX
-    NGINX -->|"/api/orders"| WCORE
+    CLIENT -->|"HTTP :8080/api/auth/*"| NGINX
+    CLIENT -->|"HTTP :8080/api/* (Bearer JWT)"| NGINX
 
-    WCORE -->|"GET /api/robots/{id}/status<br/>Validar batería >= 15%"| ROBOT
+    NGINX -->|"/api/auth/* (público)"| IDENTITY
+    NGINX -->|"auth_request (JWT)"| IDENTITY
+    NGINX -->|"/api/* (JWT válido)"| WCORE
+
+    IDENTITY -->|"SELECT/INSERT"| AUTH_PG
+
+    WCORE -->|"GET /api/robots/{id}/status"| ROBOT
     ROBOT -->|"Cache/Estado"| RD
 
-    WCORE -->|"INSERT/SELECT/UPDATE"| PG
+    WCORE -->|"INSERT/SELECT/UPDATE"| WH_PG
 
-    WCORE -->|"📤 route.completed<br/>(Outbox Pattern)"| NATS
-    NATS -->|"📥 Consume route.completed"| ANALYTICS
+    WCORE -->|"📤 route.completed<br/>Exchange: logistics.exchange"| RMQ
+    RMQ -->|"Queue: route.completed.q"| ANALYTICS
     ANALYTICS -->|"INSERT"| MG
 
     WCORE -.->|"/actuator/prometheus"| PROM
     ROBOT -.->|"/actuator/prometheus"| PROM
     ANALYTICS -.->|"/actuator/prometheus"| PROM
+    IDENTITY -.->|"/actuator/prometheus"| PROM
 
     PROM -.->|"datasource"| GRAF
     LOKI -.->|"datasource"| GRAF
@@ -58,6 +71,12 @@ graph TB
     WCORE -.->|"stdout → driver"| LOKI
     ROBOT -.->|"stdout → driver"| LOKI
     ANALYTICS -.->|"stdout → driver"| LOKI
+    IDENTITY -.->|"stdout → driver"| LOKI
+
+    WCORE -.->|"OTLP :4318"| JAEGER
+    ROBOT -.->|"OTLP :4318"| JAEGER
+    ANALYTICS -.->|"OTLP :4318"| JAEGER
+    IDENTITY -.->|"OTLP :4318"| JAEGER
 ```
 
 ## Diagrama de Secuencia — Flujo Principal
@@ -66,38 +85,53 @@ graph TB
 sequenceDiagram
     participant C as Cliente (curl)
     participant N as Nginx (:8080)
+    participant I as MS-Identity (:8084)
     participant W as MS-WarehouseCore (:8081)
     participant R as MS-RobotStatus (:8082)
-    participant P as PostgreSQL
-    participant NAT as NATS
+    participant WH_PG as PostgreSQL Warehouse
+    participant RMQ as RabbitMQ
     participant A as MS-LogisticsAnalytics (:8083)
     participant M as MongoDB
 
-    C->>N: POST /api/orders
-    N->>W: reenvía
-    W->>P: INSERT dispatch_order
-    W-->>C: 201 Created
+    C->>N: POST /api/auth/login
+    N->>I: reenvía (público)
+    I-->>C: 200 + JWT token
 
-    C->>N: POST /api/orders/{id}/assign-robot
+    C->>N: POST /api/orders (Authorization: Bearer JWT)
+    N->>I: auth_request (valida JWT)
+    I-->>N: 200 + X-Auth-User
+    N->>W: POST /api/orders
+    W->>WH_PG: INSERT dispatch_order
+    W-->>N: 201 Created
+    N-->>C: 201 Created
+
+    C->>N: POST /api/orders/{id}/assign-robot (Bearer JWT)
+    N->>I: auth_request
+    I-->>N: 200
     N->>W: reenvía
     W->>R: GET /api/robots/{id}/status
-    R-->>W: batteryLevel: 85 (>= 15%)
-    W->>P: UPDATE order.status = ASSIGNED
-    W-->>C: 200 OK (robot assigned)
+    R-->>W: batteryLevel: 85
+    W->>WH_PG: UPDATE order.status = ASSIGNED
+    W-->>N: 200 OK
+    N-->>C: 200 OK
 
     alt Batería < 15%
         R-->>W: batteryLevel: 10
-        W-->>C: 409 Conflict (batería insuficiente)
+        W-->>N: 409 Conflict
+        N-->>C: 409 Conflict
     end
 
-    C->>N: POST /api/routes/{id}/complete
+    C->>N: POST /api/routes/{id}/complete (Bearer JWT)
+    N->>I: auth_request
+    I-->>N: 200
     N->>W: reenvía
-    W->>P: UPDATE stock (descontar)
-    W->>P: INSERT outbox_event (route.completed)
-    W->>N: publish route.completed
-    W-->>C: 200 OK
+    W->>WH_PG: UPDATE stock (descontar)
+    W->>WH_PG: INSERT outbox_event
+    W->>RMQ: publish route.completed
+    W-->>N: 200 OK
+    N-->>C: 200 OK
 
-    NAT->>A: consume route.completed
+    RMQ->>A: consume route.completed
     A->>M: INSERT route_event
 ```
 
@@ -105,27 +139,36 @@ sequenceDiagram
 
 | Comunicación | Origen → Destino | Protocolo | Propósito |
 |---|---|---|---|
+| **Síncrona** | Cliente → Nginx → MS-Identity | REST HTTP | Login, register (público) |
+| **Síncrona** | Cliente → Nginx → MS-Identity | REST HTTP (auth_request) | Validar JWT antes de cada request protegido |
+| **Síncrona** | Nginx → MS-WarehouseCore | REST HTTP | API protegida (órdenes, inventario, rutas) |
 | **Síncrona** | MS-WarehouseCore → MS-RobotStatus | REST (Feign/WebClient) | Validar batería >= 15% antes de asignar robot |
-| **Asíncrona** | MS-WarehouseCore → NATS | NATS publish | Publicar evento `route.completed` |
-| **Asíncrona** | NATS → MS-LogisticsAnalytics | NATS subscribe | Consumir rutas para mapas de calor |
-| **Síncrona** | MS-WarehouseCore → PostgreSQL | JDBC/JPA | Persistir órdenes, inventario, rutas |
+| **Asíncrona** | MS-WarehouseCore → RabbitMQ | AMQP | Publicar evento `route.completed` |
+| **Asíncrona** | RabbitMQ → MS-LogisticsAnalytics | AMQP (@RabbitListener) | Consumir rutas para mapas de calor |
+| **Síncrona** | MS-Identity → PostgreSQL auth-db | JDBC/JPA | Persistir usuarios |
+| **Síncrona** | MS-WarehouseCore → PostgreSQL warehouse-db | JDBC/JPA | Persistir órdenes, inventario, rutas |
 | **Síncrona** | MS-RobotStatus → Redis | Lettuce/Redis client | Cachear estado operativo de robots |
 | **Síncrona** | MS-LogisticsAnalytics → MongoDB | Spring Data MongoDB | Persistir eventos de rutas |
-| **Outbox** | MS-WarehouseCore → PostgreSQL → NATS | Patrón Outbox | Garantizar entrega del evento aunque NATS falle |
-| **Síncrona** | Cliente → Nginx → MS-WarehouseCore | REST HTTP | API pública del sistema |
+| **Outbox** | MS-WarehouseCore → PostgreSQL → RabbitMQ | Patrón Outbox | Garantizar entrega del evento aunque RabbitMQ falle |
+| **Trazas** | Todos los MS → Jaeger | OpenTelemetry OTLP | Trazabilidad distribuida |
 
 ## Puertos Expuestos
 
 | Componente | Puerto host | Puerto contenedor | Visibilidad |
 |---|---|---|---|
 | Nginx | 8080 | 80 | Público (API) |
+| MS-Identity | 8084 | 8084 | Interna (vía Nginx) |
 | MS-WarehouseCore | 8081 | 8081 | Interna (vía Nginx) |
 | MS-RobotStatus | 8082 | 8082 | Interna |
 | MS-LogisticsAnalytics | 8083 | 8083 | Interna |
-| PostgreSQL | 5432 | 5432 | Interna |
+| PostgreSQL Auth | 5433 | 5432 | Interna |
+| PostgreSQL Warehouse | 5432 | 5432 | Interna |
 | Redis | 6379 | 6379 | Interna |
 | MongoDB | 27017 | 27017 | Interna |
-| NATS | 4222 | 4222 | Interna |
+| RabbitMQ | 5672 | 5672 | Interna (AMQP) |
+| RabbitMQ Management | 15672 | 15672 | Administrativa |
 | Prometheus | 9090 | 9090 | Administrativa |
 | Grafana | 3000 | 3000 | Administrativa |
 | Loki | 3100 | 3100 | Administrativa |
+| Jaeger UI | 16686 | 16686 | Administrativa |
+| Jaeger OTLP | 4318 | 4318 | Interna (trazas) |

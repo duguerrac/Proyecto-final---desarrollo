@@ -3,7 +3,7 @@
 ## Dependencias entre Componentes
 
 ```
-Phase A: Foundation (Docker Compose + DBs + NATS)
+Phase A: Foundation (Docker Compose + DBs + RabbitMQ)
     └── Fase base, nada depende de ella
             │
 Phase A.5: MS-Identity (JWT + PostgreSQL auth_db)
@@ -15,12 +15,12 @@ Phase B: MS-RobotStatus (Redis + REST)
     └── Independiente, puede ejecutarse en paralelo con A.5 y C
             │
 Phase C: MS-WarehouseCore (Hexagonal + PostgreSQL) ◄── sync ── Phase B
-    └── Depende de: Phase A (PostgreSQL warehouse_db, NATS)
+    └── Depende de: Phase A (PostgreSQL warehouse_db, RabbitMQ)
     └── Depende de: Phase B (consulta REST a RobotStatus)
     └── Puede empezar con RobotStatusPort mockeado mientras B no esté listo
             │
-Phase D: MS-LogisticsAnalytics (NATS + MongoDB) ◄── event ── Phase C
-    └── Depende de: Phase A (MongoDB, NATS)
+Phase D: MS-LogisticsAnalytics (RabbitMQ + MongoDB) ◄── event ── Phase C
+    └── Depende de: Phase A (MongoDB, RabbitMQ)
     └── Depende del schema del evento route.completed (definido en C)
             │
 Phase E: Nginx Gateway ──── auth_request ──── Phase A.5
@@ -41,7 +41,7 @@ Phase F: Observabilidad ──── all services running ────
   - PostgreSQL (warehouse-db, puerto 5432)
   - Redis (robot-redis, puerto 6379)
   - MongoDB (analytics-db, puerto 27017)
-  - NATS (nats, puerto 4222)
+  - RabbitMQ (rabbitmq, puerto 5672 AMQP + 15672 management)
 - Volúmenes persistentes para cada DB
 - Red compartida para todos los servicios
 - Archivo `.env.example` con variables de entorno
@@ -151,11 +151,12 @@ curl -X POST http://localhost:8081/api/orders/ORD-001/assign-robot -H "Content-T
 
 **Entregables:**
 - Proyecto Spring Boot con:
-  - `NatsRouteEventConsumer` — suscriptor a topic `route.completed`
+  - `NatsRouteEventConsumer` — suscriptor al queue `route.completed.q` vía `@RabbitListener`
+  - Exchange `logistics.exchange` (topic) + Queue `route.completed.q` + Binding con routing key `route.completed`
   - `RouteEvent` document (MongoDB) con eventId, orderId, robotId, path, distance, duration, timestamp
   - `RouteEventRepository` (MongoRepository)
   - `AnalyticsService` — procesa y persiste eventos
-- Dockerfile + pom.xml
+- Dockerfile + pom.xml (spring-boot-starter-amqp en vez de nats-spring)
 
 **Verificación:**
 ```bash
@@ -203,8 +204,10 @@ curl http://localhost:8080/api/orders -H "Authorization: Bearer $TOKEN" → 200
 **Responsable:** Integrante 2
 
 **Entregables:**
+
+**Prometheus + Grafana + Loki:**
 - `observability/prometheus.yml`:
-  - Scrape targets: warehouse-core:8081, robot-status:8082, analytics:8083
+  - Scrape targets: warehouse-core:8081, robot-status:8082, analytics:8083, identity:8084
   - Scrape interval: 15s
 - `observability/loki-config.yml`:
   - Loki en modo simple sin autenticación
@@ -215,10 +218,17 @@ curl http://localhost:8080/api/orders -H "Authorization: Bearer $TOKEN" → 200
   - Dashboard con: HTTP request rate, latency p99, battery rejections, routes completed
 - Configuración de `management.endpoints.web.exposure.include=prometheus,health` en cada MS
 
+**Jaeger (trazabilidad distribuida):**
+- Servicio `jaeger` en docker-compose (image: `jaegertracing/all-in-one`, puertos 16686 UI + 4318 OTLP)
+- Dependencia en cada MS: `micrometer-tracing-bridge-otel` + `opentelemetry-exporter-otlp`
+- Configuración en cada MS: `otel.exporter.otlp.endpoint=http://jaeger:4318`
+- Trazas visibles: frontend → nginx → warehouse-core → robot-status → rabbitmq → analytics
+
 **Verificación:**
 ```bash
 curl localhost:9090/api/v1/targets → targets UP
 Abrir http://localhost:3000 → Grafana, datasources configurados
+Abrir http://localhost:16686 → Jaeger UI con trazas del flujo completo
 ```
 
 ---
@@ -228,7 +238,7 @@ Abrir http://localhost:3000 → Grafana, datasources configurados
 | Integrante | Fases | Qué sustenta |
 |---|---|---|
 | **Integrante 1** | C (WarehouseCore) | Hexagonal, dominio, políticas de negocio, Dijkstra, outbox |
-| **Integrante 2** | A, A.5, D, F | Docker Compose, MS-Identity + JWT, NATS, MongoDB, Prometheus/Grafana/Loki |
+| **Integrante 2** | A, A.5, D, F | Docker Compose, MS-Identity + JWT, RabbitMQ, MongoDB, Prometheus/Grafana/Loki/Jaeger |
 | **Integrante 3** | B, E | REST con Redis, Nginx + auth_request, documentación APIs |
 
 ## Riesgos y Mitigaciones
@@ -238,6 +248,7 @@ Abrir http://localhost:3000 → Grafana, datasources configurados
 | Arquitectura hexagonal queda en solo carpetas | Alta | Crítico | Code review forzado: dominio no importa frameworks |
 | Eventos NATS no llegan a Analytics | Media | Alto | Outbox pattern + verificación manual con NATS CLI |
 | Dijkstra sin datos semilla no se puede probar | Media | Alto | Script seed-warehouse.sql incluido desde Fase A |
+| Configuración RabbitMQ (exchanges, queues, bindings) | Media | Alto | Declarar beans en `RabbitConfig.java` dentro de cada MS |
 | Tiempo insuficiente para observabilidad | Media | Medio | Desde Fase A agregar actuator/prometheus en cada pom.xml |
 | Integración entre 3 personas conflictiva | Alta | Alto | Contratos API congelados en spec; demo-flow.http como prueba única |
 | MS-RobotStatus no responde y WarehouseCore falla | Media | Medio | Timeouts cortos + fallar con 409 (no asignar) ante timeout |

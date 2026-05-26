@@ -14,6 +14,7 @@ Construir el backend de **SmartLogistics**, un sistema de coordinación de almac
 - Calcular ruta con Dijkstra sobre root points (requiere JWT)
 - Cerrar ruta, descontar stock y publicar evento `route.completed` a NATS (requiere JWT)
 - MS-LogisticsAnalytics consume el evento y lo persiste en MongoDB
+- Trazas distribuidas visibles en Jaeger (frontend → nginx → warehouse-core → robot-status → rabbitmq → analytics)
 - Todo el sistema levanta con `docker compose up`
 - Métricas en Prometheus + dashboard en Grafana + logs en Loki
 
@@ -31,9 +32,9 @@ Construir el backend de **SmartLogistics**, un sistema de coordinación de almac
 | Base datos Core | PostgreSQL 16 (warehouse_db) |
 | Cache/Estado | Redis 7 |
 | Base datos Analytics | MongoDB 7 |
-| Broker | NATS 2.x |
+| Broker | RabbitMQ 3.13 (AMQP) |
 | API Gateway | Nginx 1.27 (reverse proxy + auth_request) |
-| Observabilidad | Prometheus + Grafana + Loki |
+| Observabilidad | Prometheus + Grafana + Loki + Jaeger |
 | Contenedores | Docker Compose |
 
 ## Commands
@@ -169,7 +170,11 @@ smartlogistic/
 | `GET` | `/api/robots/{id}/status` | Estado del robot (batería, disponible) |
 | `POST` | `/api/robots` | Registrar/actualizar robot (simulación) |
 
-### Evento NATS: `route.completed`
+### Evento RabbitMQ: `route.completed`
+
+**Exchange:** `logistics.exchange` (topic)
+**Queue:** `route.completed.q`
+**Routing key:** `route.completed`
 
 ```json
 {
@@ -183,8 +188,8 @@ smartlogistic/
   "totalDistanceMeters": 128.4,
   "durationSeconds": 420,
   "path": [
-    { "rootPointId": "RP-START", "x": 0.0, "y": 0.0 },
-    { "rootPointId": "RP-A1-03", "x": 12.5, "y": 4.0 }
+    { "rootPointId": "RP-START", "x": 0.0, "y": 0.0, "timestamp": "..." },
+    { "rootPointId": "RP-A1-03", "x": 12.5, "y": 4.0, "timestamp": "..." }
   ]
 }
 ```
@@ -291,7 +296,7 @@ class OrderController {
 
 | Decisión | Opción elegida |
 |---|---|
-| Broker | NATS |
+| Broker | RabbitMQ (AMQP) |
 | Analytics DB | MongoDB |
 | API Gateway | Nginx con auth_request |
 | Auth | MS-Identity + JWT + BCrypt |
@@ -301,3 +306,4 @@ class OrderController {
 | Algoritmo de ruta | Dijkstra |
 | Webhook ERP | No incluido en MVP. Documentado como puerto hexagonal |
 | Descuento de stock | Reservar al asignar, descontar al completar |
+| Trazabilidad | Jaeger + OpenTelemetry |
