@@ -1,0 +1,111 @@
+### ============================================================
+### SmartLogistic — Demo Flow (HTTP Client)
+### ============================================================
+### Use: VS Code REST Client extension (humao.rest-client)
+### Base URL (via Nginx, Fase E)
+
+@baseUrl = http://localhost:8080/api
+
+### ============================================================
+### 1. Crear Orden de Despacho
+### POST /api/orders
+### ============================================================
+
+POST {{baseUrl}}/orders
+Content-Type: application/json
+
+{
+  "items": [
+    {
+      "sku": "SKU-ELEC-001",
+      "quantity": 2
+    },
+    {
+      "sku": "SKU-CRISTAL-001",
+      "quantity": 1
+    }
+  ],
+  "priority": "HIGH"
+}
+
+### ============================================================
+### 2. Consultar Orden Creada
+### GET /api/orders/{id}
+### ============================================================
+
+GET {{baseUrl}}/orders/1
+
+### ============================================================
+### 3. Asignar Robot Válido (batería >= 15%)
+### POST /api/orders/{id}/assign-robot
+### ============================================================
+
+POST {{baseUrl}}/orders/1/assign-robot
+Content-Type: application/json
+
+{
+  "robotId": "RBT-01"
+}
+
+### ============================================================
+### 4. Asignar Robot con Batería Baja (debe rechazar)
+### POST /api/orders/{id}/assign-robot
+### ============================================================
+
+POST {{baseUrl}}/orders/2/assign-robot
+Content-Type: application/json
+
+{
+  "robotId": "RBT-LOW"
+}
+
+### ============================================================
+### 5. Calcular Ruta (Dijkstra)
+### POST /api/orders/{id}/route-plan
+### ============================================================
+
+POST {{baseUrl}}/orders/1/route-plan
+Content-Type: application/json
+
+{
+  "algorithm": "DIJKSTRA"
+}
+
+### ============================================================
+### 6. Completar Ruta
+### POST /api/routes/{id}/complete
+### ============================================================
+
+POST {{baseUrl}}/routes/1/complete
+Content-Type: application/json
+
+{
+  "robotId": "RBT-01",
+  "durationSeconds": 420
+}
+
+### ============================================================
+### 7. Consultar Stock por SKU
+### GET /api/inventory/items/{sku}/spots
+### ============================================================
+
+GET {{baseUrl}}/inventory/items/SKU-ELEC-001/spots
+
+### ============================================================
+### 8. Consultar Grafo del Almacén
+### GET /api/warehouse/graph
+### ============================================================
+
+GET {{baseUrl}}/warehouse/graph
+
+### ============================================================
+### 9. Health Check (directo a MS)
+### ============================================================
+
+GET http://localhost:8081/actuator/health
+
+### ============================================================
+### 10. Métricas Prometheus (directo a MS)
+### ============================================================
+
+GET http://localhost:8081/actuator/prometheus
