@@ -83,6 +83,20 @@ services:
     networks:
       - smartlogistic-net
 
+  nats:
+    image: nats:2-alpine
+    container_name: smartlogistic-nats
+    restart: unless-stopped
+    ports:
+      - "${NATS_PORT:-4222}:4222"
+      - "${NATS_MONITOR_PORT:-8222}:8222"
+      - "${NATS_WS_PORT:-8443}:8443"
+    volumes:
+      - ./nats/nats.conf:/etc/nats/nats.conf:ro
+    command: ["-c", "/etc/nats/nats.conf"]
+    networks:
+      - smartlogistic-net
+
   rabbitmq:
     image: rabbitmq:3.13-management-alpine
     container_name: smartlogistic-rabbitmq
@@ -178,14 +192,17 @@ services:
       - "${ROBOT_STATUS_PORT:-8082}:8082"
     environment:
       SERVER_PORT: 8082
-      SPRING_REDIS_HOST: robot-redis
-      SPRING_REDIS_PORT: 6379
+      SPRING_DATA_REDIS_HOST: robot-redis
+      SPRING_DATA_REDIS_PORT: 6379
+      NATS_URL: nats://nats:4222
       MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE: prometheus,health,info
       MANAGEMENT_TRACING_SAMPLING_PROBABILITY: "1.0"
       OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4318
     depends_on:
       robot-redis:
         condition: service_healthy
+      nats:
+        condition: service_started
     networks:
       - smartlogistic-net
 

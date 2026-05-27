@@ -1,0 +1,61 @@
+# ===========================================
+# Unreal Engine 5
+# ===========================================
+Simulation/Binaries/
+Simulation/DerivedDataCache/
+Simulation/Intermediate/
+Simulation/Saved/
+Simulation/.vs/
+Simulation/*.sln
+Simulation/*.xcodeproj
+Simulation/*.xcworkspace
+
+# Build artifacts
+*.pdb
+*.lib
+*.exp
+*.obj
+*.ilk
+*.map
+
+# ===========================================
+# Java / Maven / Spring Boot
+# ===========================================
+**/target/
+*.class
+*.jar
+*.war
+*.nar
+*.ear
+*.log
+**/.mvn/wrapper/maven-wrapper.jar
+
+# ===========================================
+# IDE
+# ===========================================
+.idea/
+*.iml
+.vscode/settings.json
+.vs/
+*.user
+*.suo
+*.cache
+
+# ===========================================
+# OS
+# ===========================================
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ===========================================
+# Docker / Env
+# ===========================================
+.env
+**/data/
+
+# ===========================================
+# Temp
+# ===========================================
+temp-*.txt
+*.patch.json

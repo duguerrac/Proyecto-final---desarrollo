@@ -1,0 +1,248 @@
+// Copyright Epic Games, Inc. All Rights Reserved.
+
+#include "NatsWebSocketClient.h"
+#include "Sockets.h"
+#include "SocketSubsystem.h"
+#include "Interfaces/IPv4/IPv4Address.h"
+#include "TimerManager.h"
+#include "Dom/JsonObject.h"
+#include "Serialization/JsonReader.h"
+#include "Serialization/JsonSerializer.h"
+
+UNatsWebSocketClient::UNatsWebSocketClient()
+{
+}
+
+void UNatsWebSocketClient::Connect(const FString& ServerUrl)
+{
+    // Parse host:port from URL (supports "nats://host:port" or just "host:port")
+    FString CleanUrl = ServerUrl;
+    CleanUrl.ReplaceInline(TEXT("nats://"), TEXT(""));
+    CleanUrl.ReplaceInline(TEXT("ws://"), TEXT(""));
+
+    FString Host;
+    int32 Port = 4222;
+    TArray<FString> Parts;
+    CleanUrl.ParseIntoArray(Parts, TEXT(":"));
+    if (Parts.Num() >= 2)
+    {
+        Host = Parts[0];
+        Port = FCString::Atoi(*Parts[1]);
+    }
+    else if (Parts.Num() == 1)
+    {
+        Host = Parts[0];
+    }
+
+    UE_LOG(LogTemp, Log, TEXT("[NATS-TCP] Connecting to %s:%d..."), *Host, Port);
+
+    // Resolve host
+    FIPv4Address Address;
+    if (!FIPv4Address::Parse(Host, Address))
+    {
+        // Try DNS resolution
+        auto* SocketSub = ISocketSubsystem::Get(PLATFORM_SOCKETSUBSYSTEM);
+        FResolveInfo* ResolveInfo = SocketSub->GetHostByName(TCHAR_TO_ANSI(*Host));
+        while (!ResolveInfo->IsComplete()) { FPlatformProcess::Sleep(0.01f); }
+        if (ResolveInfo->GetErrorCode() != 0)
+        {
+            UE_LOG(LogTemp, Error, TEXT("[NATS-TCP] DNS resolution failed for %s"), *Host);
+            return;
+        }
+        Address = ResolveInfo->GetResolvedAddress().GetStructSocketAddress()->GetAddress();
+    }
+
+    // Create TCP socket
+    auto* SocketSub = ISocketSubsystem::Get(PLATFORM_SOCKETSUBSYSTEM);
+    NatsSocket = SocketSub->CreateSocket(NAME_Stream, TEXT("NATS-TCP"), false);
+    if (!NatsSocket)
+    {
+        UE_LOG(LogTemp, Error, TEXT("[NATS-TCP] Failed to create socket"));
+        return;
+    }
+
+    NatsSocket->SetNonBlocking(true);
+    NatsSocket->SetRecvBufferSize(64 * 1024, 64 * 1024);
+
+    TSharedRef<FInternetAddr> Addr = SocketSub->CreateInternetAddr();
+    Addr->SetIp(Address.Value);
+    Addr->SetPort(Port);
+
+    if (!NatsSocket->Connect(*Addr))
+    {
+        UE_LOG(LogTemp, Error, TEXT("[NATS-TCP] Connect failed"));
+        return;
+    }
+
+    UE_LOG(LogTemp, Log, TEXT("[NATS-TCP] Socket connected, waiting for INFO..."));
+
+    // Start polling timer (50ms interval)
+    if (UWorld* World = GetWorld())
+    {
+        FTimerDelegate TimerDel;
+        TimerDel.BindUObject(this, &UNatsWebSocketClient::TickReadSocket);
+        World->GetTimerManager().SetTimer(TickTimerHandle, TimerDel, 0.05f, true);
+    }
+}
+
+void UNatsWebSocketClient::Disconnect()
+{
+    if (NatsSocket)
+    {
+        NatsSocket->Close();
+        ISocketSubsystem::Get(PLATFORM_SOCKETSUBSYSTEM)->DestroySocket(NatsSocket);
+        NatsSocket = nullptr;
+    }
+    if (UWorld* World = GetWorld())
+    {
+        World->GetTimerManager().ClearTimer(TickTimerHandle);
+    }
+    bNatsConnected = false;
+    UE_LOG(LogTemp, Log, TEXT("[NATS-TCP] Disconnected"));
+}
+
+bool UNatsWebSocketClient::IsConnected() const
+{
+    return NatsSocket != nullptr && bNatsConnected;
+}
+
+void UNatsWebSocketClient::TickReadSocket()
+{
+    if (!NatsSocket) return;
+
+    // Read available data
+    uint8 Buf[4096];
+    int32 BytesRead = 0;
+    while (NatsSocket->Recv(Buf, sizeof(Buf) - 1, BytesRead, ESocketReceiveFlags::None))
+    {
+        if (BytesRead <= 0) break;
+        Buf[BytesRead] = 0;
+        FString Data(UTF8_TO_TCHAR(reinterpret_cast<const ANSICHAR*>(Buf)));
+        RxBuffer += Data;
+    }
+
+    // Process complete lines
+    while (true)
+    {
+        int32 CrPos, LfPos;
+        if (!RxBuffer.FindChar('\n', LfPos)) break;
+
+        FString Line = RxBuffer.Left(LfPos);
+        Line.TrimEndInline(); // remove trailing \r
+        RxBuffer = RxBuffer.RightChop(LfPos + 1);
+
+        if (Line.IsEmpty()) continue;
+        ProcessLine(Line);
+    }
+}
+
+void UNatsWebSocketClient::ProcessLine(const FString& Line)
+{
+    // If waiting for MSG payload, this IS the payload
+    if (!PendingMsgHeader.IsEmpty())
+    {
+        FString JsonPayload = Line;
+        UE_LOG(LogTemp, Log, TEXT("[NATS-TCP] MSG payload (%d chars): %s"),
+               JsonPayload.Len(), *JsonPayload.Left(200));
+        PendingMsgHeader.Empty();
+
+        TSharedPtr<FJsonObject> JsonObject;
+        TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(JsonPayload);
+        if (FJsonSerializer::Deserialize(Reader, JsonObject) && JsonObject.IsValid())
+        {
+            FSmartLogisticRobotData RobotData = ParseRobotJson(JsonObject);
+            UE_LOG(LogTemp, Log, TEXT("[NATS-TCP] ✔ Robot: %s | Mode: %d | Bat: %d%%"),
+                   *RobotData.RobotId, (int32)RobotData.OperationalMode, RobotData.BatteryLevel);
+            OnRobotStatusReceived.Broadcast(RobotData);
+        }
+        else
+        {
+            UE_LOG(LogTemp, Warning, TEXT("[NATS-TCP] JSON parse failed: %s"), *JsonPayload.Left(300));
+        }
+        return;
+    }
+
+    // Protocol line handling
+    if (Line.StartsWith(TEXT("INFO")))
+    {
+        bNatsConnected = true;
+        UE_LOG(LogTemp, Log, TEXT("[NATS-TCP] INFO received: %s"), *Line.Left(200));
+        SendNatsConnect();
+        SendNatsSubscribe(TEXT("smartlogistic.robot.status.>"));
+    }
+    else if (Line.StartsWith(TEXT("MSG")))
+    {
+        // MSG <subject> <sid> <len> — payload follows on next line
+        PendingMsgHeader = Line;
+        UE_LOG(LogTemp, Log, TEXT("[NATS-TCP] MSG header: %s"), *Line);
+    }
+    else if (Line.StartsWith(TEXT("-ERR")))
+    {
+        UE_LOG(LogTemp, Error, TEXT("[NATS-TCP] Server error: %s"), *Line);
+    }
+    else if (Line.StartsWith(TEXT("+OK")))
+    {
+        UE_LOG(LogTemp, Log, TEXT("[NATS-TCP] +OK"));
+    }
+    else if (Line.StartsWith(TEXT("PING")))
+    {
+        FString Pong = TEXT("PONG\r\n");
+        int32 Sent = 0;
+        NatsSocket->Send(reinterpret_cast<const uint8*>(TCHAR_TO_UTF8(*Pong)), 
+                         FCStringAnsi::Strlen(TCHAR_TO_UTF8(*Pong)), Sent);
+        UE_LOG(LogTemp, Verbose, TEXT("[NATS-TCP] PING → PONG"));
+    }
+}
+
+void UNatsWebSocketClient::SendNatsConnect()
+{
+    FString Frame = TEXT("CONNECT {\"protocol\":1,\"version\":\"2.0\",\"lang\":\"unreal-tcp\",\"verbose\":false,\"pedantic\":false}\r\n");
+    int32 Sent = 0;
+    auto* Utf8 = TCHAR_TO_UTF8(*Frame);
+    NatsSocket->Send(reinterpret_cast<const uint8*>(Utf8), FCStringAnsi::Strlen(Utf8), Sent);
+    UE_LOG(LogTemp, Log, TEXT("[NATS-TCP] Sent CONNECT (%d bytes)"), Sent);
+}
+
+void UNatsWebSocketClient::SendNatsSubscribe(const FString& Subject)
+{
+    int32 Sid = NextSubId++;
+    FString Frame = FString::Printf(TEXT("SUB %s %d\r\n"), *Subject, Sid);
+    int32 Sent = 0;
+    auto* Utf8 = TCHAR_TO_UTF8(*Frame);
+    NatsSocket->Send(reinterpret_cast<const uint8*>(Utf8), FCStringAnsi::Strlen(Utf8), Sent);
+    UE_LOG(LogTemp, Log, TEXT("[NATS-TCP] Subscribed to '%s' (sid=%d, %d bytes)"), *Subject, Sid, Sent);
+}
+
+FSmartLogisticRobotData UNatsWebSocketClient::ParseRobotJson(const TSharedPtr<FJsonObject>& JsonObject)
+{
+    FSmartLogisticRobotData Data;
+
+    TSharedPtr<FJsonObject> Source = JsonObject;
+    if (JsonObject->HasField(TEXT("robot")) && JsonObject->GetObjectField(TEXT("robot")).IsValid())
+        Source = JsonObject->GetObjectField(TEXT("robot"));
+    else if (JsonObject->HasField(TEXT("data")) && JsonObject->GetObjectField(TEXT("data")).IsValid())
+        Source = JsonObject->GetObjectField(TEXT("data"));
+
+    Data.RobotId         = Source->GetStringField(TEXT("id"));
+    Data.RobotName       = Source->GetStringField(TEXT("name"));
+    Data.BatteryLevel    = Source->GetIntegerField(TEXT("batteryLevel"));
+    Data.bAvailable      = Source->GetBoolField(TEXT("available"));
+    Data.CurrentLocation = Source->GetStringField(TEXT("currentLocation"));
+
+    FString ModeStr = Source->GetStringField(TEXT("operationalMode"));
+    Data.OperationalMode = ParseOperationalMode(ModeStr);
+
+    if (Source->HasField(TEXT("timestamp")))
+        Data.EventTimestamp = Source->GetStringField(TEXT("timestamp"));
+
+    return Data;
+}
+
+ERobotOperationalMode UNatsWebSocketClient::ParseOperationalMode(const FString& ModeStr)
+{
+    if (ModeStr == TEXT("MOVING"))    return ERobotOperationalMode::MOVING;
+    if (ModeStr == TEXT("PICKING"))   return ERobotOperationalMode::PICKING;
+    if (ModeStr == TEXT("CHARGING"))  return ERobotOperationalMode::CHARGING;
+    if (ModeStr == TEXT("OFFLINE"))   return ERobotOperationalMode::OFFLINE;
+    return ERobotOperationalMode::IDLE;
+}

@@ -1,0 +1,103 @@
+// Copyright Epic Games, Inc. All Rights Reserved.
+
+#pragma once
+
+#include "CoreMinimal.h"
+#include "GameFramework/Actor.h"
+#include "RobotTypes.h"
+#include "NatsWebSocketClient.h"
+#include "RobotManager.generated.h"
+
+class AWarehouseRobot;
+
+/**
+ * Central manager for the SmartLogistics warehouse simulation.
+ * Owns the NATS WebSocket client and manages a pool of AWarehouseRobot actors.
+ * Place one instance in the level to enable the simulation.
+ */
+UCLASS(BlueprintType, Category = "SmartLogistics")
+class ARobotManager : public AActor
+{
+    GENERATED_BODY()
+
+public:
+    ARobotManager();
+
+    virtual void BeginPlay() override;
+    virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
+
+    // ─── Configuration (set in level editor) ─────────────────────
+
+    /** NATS WebSocket URL. Default: ws://localhost:8443 (matches docker-compose NATS_WS_PORT) */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SmartLogistics|Config")
+    FString NatsUrl = TEXT("127.0.0.1:4222");
+
+    /** How many robot slots to pre-allocate in the scene. */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SmartLogistics|Config",
+              meta = (ClampMin = "1", ClampMax = "50"))
+    int32 MaxRobots = 10;
+
+    /** Spacing between robot slots on the X axis. */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SmartLogistics|Config")
+    float RobotSpacing = 300.0f;
+
+    /** Starting position for the first robot. */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SmartLogistics|Config")
+    FVector SpawnOrigin = FVector(0.0f, 0.0f, 100.0f);
+
+    // ─── Runtime State (read-only) ───────────────────────────────
+
+    /** Number of active robots being tracked. */
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "SmartLogistics|Status")
+    int32 ActiveRobotCount = 0;
+
+    /** Number of events received in this session. */
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "SmartLogistics|Status")
+    int32 TotalEventsReceived = 0;
+
+    /** Is NATS connected? */
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "SmartLogistics|Status")
+    bool bIsNatsConnected = false;
+
+    // ─── Actions ─────────────────────────────────────────────────
+
+    /** Manually connect to NATS (called automatically in BeginPlay). */
+    UFUNCTION(BlueprintCallable, Category = "SmartLogistics")
+    void ConnectToNats();
+
+    /** Disconnect from NATS. */
+    UFUNCTION(BlueprintCallable, Category = "SmartLogistics")
+    void DisconnectFromNats();
+
+    /** Get all tracked robot data as array. */
+    UFUNCTION(BlueprintCallable, Category = "SmartLogistics")
+    void GetAllRobotData(TArray<FSmartLogisticRobotData>& OutData) const;
+
+    // ─── Delegates ───────────────────────────────────────────────
+
+    /** Fired when a robot status is updated (for HUD binding). */
+    UPROPERTY(BlueprintAssignable, Category = "SmartLogistics")
+    FOnRobotStatusReceived OnRobotUpdated;
+
+private:
+    /** NATS client instance. */
+    UPROPERTY()
+    UNatsWebSocketClient* NatsClient;
+
+    /** Map robot ID → robot actor instance. */
+    UPROPERTY()
+    TMap<FString, AWarehouseRobot*> RobotActors;
+
+    /** Counter for naming new robot actors. */
+    int32 RobotCounter = 0;
+
+    /** Handle incoming NATS event. */
+    UFUNCTION()
+    void HandleRobotStatusEvent(const FSmartLogisticRobotData& RobotData);
+
+    /** Find or create a robot actor for the given ID. */
+    AWarehouseRobot* FindOrCreateRobot(const FSmartLogisticRobotData& Data);
+
+    /** Compute world position for robot slot index. */
+    FVector GetSlotPosition(int32 SlotIndex) const;
+};
