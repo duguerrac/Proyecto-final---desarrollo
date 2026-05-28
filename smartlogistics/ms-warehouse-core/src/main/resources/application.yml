@@ -1,0 +1,45 @@
+server:
+  port: ${SERVER_PORT:8081}
+
+spring:
+  application:
+    name: ms-warehouse-core
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/warehouse_db}
+    username: ${SPRING_DATASOURCE_USERNAME:warehouse}
+    password: ${SPRING_DATASOURCE_PASSWORD:warehouse_pass}
+    driver-class-name: org.postgresql.Driver
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+    properties:
+      hibernate:
+        format_sql: false
+  flyway:
+    enabled: true
+    baseline-on-migrate: true
+    baseline-version: 0
+
+robot-status:
+  base-url: ${ROBOT_STATUS_URL:http://localhost:8082}
+  timeout-ms: ${ROBOT_STATUS_TIMEOUT_MS:2000}
+
+nats:
+  url: ${NATS_URL:nats://localhost:4222}
+  subject: route.completed
+
+warehouse:
+  id: ${WAREHOUSE_ID:WH-01}
+  start-root-point: ${WAREHOUSE_START_ROOT_POINT:RP-START}
+  exit-root-point: ${WAREHOUSE_EXIT_ROOT_POINT:RP-EXIT}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+  endpoint:
+    health:
+      probes:
+        enabled: true
