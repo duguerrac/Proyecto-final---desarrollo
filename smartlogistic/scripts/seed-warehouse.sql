@@ -36,6 +36,7 @@ CREATE TABLE IF NOT EXISTS spot_item (
     spot_id BIGINT NOT NULL REFERENCES spot(id),
     item_id BIGINT NOT NULL REFERENCES inventory_item(id),
     quantity_available INT NOT NULL DEFAULT 0,
+    quantity_reserved INT NOT NULL DEFAULT 0,
     UNIQUE(spot_id, item_id)
 );
 
@@ -80,6 +81,7 @@ CREATE TABLE IF NOT EXISTS route_plan (
     robot_id VARCHAR(50),
     status VARCHAR(30) NOT NULL DEFAULT 'PENDING',
     total_distance DECIMAL(10,2),
+    speed_factor DECIMAL(5,2) NOT NULL DEFAULT 1.0,
     created_at TIMESTAMP NOT NULL DEFAULT NOW()
 );
 
@@ -102,6 +104,18 @@ CREATE TABLE IF NOT EXISTS outbox_event (
     created_at TIMESTAMP NOT NULL DEFAULT NOW(),
     last_attempt_at TIMESTAMP
 );
+
+ALTER TABLE spot_item ADD COLUMN IF NOT EXISTS quantity_reserved INT NOT NULL DEFAULT 0;
+ALTER TABLE route_plan ADD COLUMN IF NOT EXISTS speed_factor DECIMAL(5,2) NOT NULL DEFAULT 1.0;
+
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint WHERE conname = 'uk_route_edge_source_target'
+    ) THEN
+        ALTER TABLE route_edge ADD CONSTRAINT uk_route_edge_source_target UNIQUE (source_id, target_id);
+    END IF;
+END $$;
 
 -- =============================================================
 -- Datos semilla: Inventory Items (5 productos)
@@ -144,8 +158,8 @@ ON CONFLICT (code) DO NOTHING;
 -- =============================================================
 -- Datos semilla: Spot-Item (10 relaciones)
 -- =============================================================
-INSERT INTO spot_item (spot_id, item_id, quantity_available)
-SELECT s.id, i.id, qty
+INSERT INTO spot_item (spot_id, item_id, quantity_available, quantity_reserved)
+SELECT s.id, i.id, qty, 0
 FROM (VALUES
     ('SP-A1-01', 'SKU-ELEC-001', 15),
     ('SP-A1-02', 'SKU-ELEC-002', 8),
@@ -159,7 +173,8 @@ FROM (VALUES
     ('SP-A1-03', 'SKU-CRISTAL-001', 6)
 ) AS data(spot_code, sku_val, qty)
 JOIN spot s ON s.code = data.spot_code
-JOIN inventory_item i ON i.sku = data.sku_val;
+JOIN inventory_item i ON i.sku = data.sku_val
+ON CONFLICT (spot_id, item_id) DO NOTHING;
 
 -- =============================================================
 -- Datos semilla: Route Edges (15 conexiones)
@@ -184,4 +199,5 @@ FROM (VALUES
     ('RP-CHARGE', 'RP-B1-01',  7.1)
 ) AS data(source_code, target_code, dist)
 JOIN root_point s ON s.code = data.source_code
-JOIN root_point t ON t.code = data.target_code;
+JOIN root_point t ON t.code = data.target_code
+ON CONFLICT (source_id, target_id) DO NOTHING;
