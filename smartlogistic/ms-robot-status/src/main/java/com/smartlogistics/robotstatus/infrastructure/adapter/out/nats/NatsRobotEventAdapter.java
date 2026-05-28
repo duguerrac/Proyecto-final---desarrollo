@@ -1,8 +1,10 @@
 package com.smartlogistics.robotstatus.infrastructure.adapter.out.nats;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.smartlogistics.robotstatus.application.port.out.RobotCommandPort;
 import com.smartlogistics.robotstatus.application.port.out.RobotEventPort;
 import com.smartlogistics.robotstatus.domain.model.Robot;
+import com.smartlogistics.robotstatus.domain.model.RobotCommand;
 import io.nats.client.Connection;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -19,11 +21,12 @@ import java.util.Map;
  * Implements the hexagonal output port (RobotEventPort).
  */
 @Component
-public class NatsRobotEventAdapter implements RobotEventPort {
+public class NatsRobotEventAdapter implements RobotEventPort, RobotCommandPort {
 
     private static final Logger log = LoggerFactory.getLogger(NatsRobotEventAdapter.class);
     private static final String SUBJECT_UPDATE = "smartlogistic.robot.status.update";
     private static final String SUBJECT_BATCH = "smartlogistic.robot.status.batch";
+    private static final String SUBJECT_COMMAND = "smartlogistic.robot.command";
 
     private final Connection natsConnection;
     private final ObjectMapper objectMapper;
@@ -65,6 +68,31 @@ public class NatsRobotEventAdapter implements RobotEventPort {
             log.debug("Published STATUS_BATCH with {} robots", robots.size());
         } catch (Exception e) {
             log.error("Failed to publish STATUS_BATCH: {}", e.getMessage());
+        }
+    }
+
+    @Override
+    public void publishCommand(RobotCommand command) {
+        try {
+            String subject = SUBJECT_COMMAND + "." + command.getRobotId();
+
+            Map<String, Object> event = new HashMap<>();
+            event.put("event", "ROBOT_COMMAND");
+            event.put("timestamp", Instant.now().toString());
+            event.put("source", "ms-robot-status");
+            event.put("robotId", command.getRobotId());
+            event.put("commandType", command.getType().name());
+            event.put("targetLocation", command.getTargetLocation());
+            event.put("routePoints", command.getRoutePoints());
+            event.put("itemSku", command.getItemSku());
+            event.put("orderId", command.getOrderId());
+
+            String json = objectMapper.writeValueAsString(event);
+            natsConnection.publish(subject, json.getBytes());
+            log.info("Published COMMAND {} for robot {} to subject {}",
+                    command.getType(), command.getRobotId(), subject);
+        } catch (Exception e) {
+            log.error("Failed to publish COMMAND for robot {}: {}", command.getRobotId(), e.getMessage());
         }
     }
 

@@ -9,6 +9,9 @@
 /** Delegate broadcast when a robot status event is received from NATS */
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnRobotStatusReceived, const FSmartLogisticRobotData&, RobotData);
 
+/** Delegate broadcast when a robot command is received from NATS */
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_ThreeParams(FOnRobotCommandReceived, const FString&, RobotId, const FString&, CommandType, const FString&, TargetLocation);
+
 /**
  * NATS client using raw TCP socket (more reliable than WebSocket on UE5/Windows).
  * Connects directly to NATS server on port 4222.
@@ -31,9 +34,16 @@ public:
     /** Is NATS connected and subscribed? */
     bool IsConnected() const;
 
+    /** Publish a message to a NATS subject */
+    bool Publish(const FString& Subject, const FString& JsonPayload);
+
     /** Delegate broadcast when robot status event arrives */
     UPROPERTY(BlueprintAssignable, Category = "SmartLogistics")
     FOnRobotStatusReceived OnRobotStatusReceived;
+
+    /** Delegate broadcast when a robot command arrives from backend */
+    UPROPERTY(BlueprintAssignable, Category = "SmartLogistics")
+    FOnRobotCommandReceived OnRobotCommandReceived;
 
 private:
     // --- TCP Socket ---

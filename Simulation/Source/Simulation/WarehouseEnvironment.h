@@ -7,6 +7,28 @@
 #include "WarehouseEnvironment.generated.h"
 
 /**
+ * A named warehouse location (shelf, dock, charging station, etc.)
+ */
+USTRUCT(BlueprintType)
+struct FWarehouseLocation
+{
+    GENERATED_BODY()
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite)
+    FString Name;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite)
+    FString Type;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite)
+    FVector Position = FVector::ZeroVector;
+
+    FWarehouseLocation() {}
+    FWarehouseLocation(const FString& InName, const FString& InType, const FVector& InPos)
+        : Name(InName), Type(InType), Position(InPos) {}
+};
+
+/**
  * Procedural warehouse environment builder.
  * Place this actor in the level and it auto-generates:
  *   - Floor, walls, ceiling
@@ -67,6 +89,32 @@ public:
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Warehouse|Colors")
     FLinearColor DeliveryColor = FLinearColor(0.9f, 0.55f, 0.1f);
 
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Warehouse|Colors")
+    FLinearColor ReceivingColor = FLinearColor(0.1f, 0.85f, 0.2f);
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Warehouse|Colors")
+    FLinearColor PickupEmptyColor = FLinearColor(0.1f, 0.85f, 0.2f);
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Warehouse|Colors")
+    FLinearColor PickupFullColor = FLinearColor(0.6f, 0.15f, 0.8f);
+
+    // ─── Pickup Zone Config ──────────────────────────────────────
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Warehouse|Pickup")
+    int32 PendingPickupItems = 0;
+
+    // ─── Named Locations ─────────────────────────────────────────
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Warehouse|Locations")
+    TArray<FWarehouseLocation> Locations;
+
+    /** Find a location by name */
+    bool GetLocation(const FString& Name, FWarehouseLocation& OutLocation) const;
+
+    /** Get all locations of a given type */
+    void GetLocationsByType(const FString& Type, TArray<FWarehouseLocation>& OutLocations) const;
+
+    /** Get all locations as JSON string */
+    FString GetLayoutJson() const;
+
 private:
     UPROPERTY()
     TArray<UStaticMeshComponent*> ProceduralComponents;
@@ -82,5 +130,8 @@ private:
     void BuildShelves();
     void BuildChargingStations();
     void BuildDeliveryArea();
+    void BuildReceivingArea();
+    void BuildPickupZone();
     void BuildLabels();
+    void BuildLocationMap();
 };

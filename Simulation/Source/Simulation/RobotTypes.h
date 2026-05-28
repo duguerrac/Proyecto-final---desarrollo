@@ -11,21 +11,23 @@
 UENUM(BlueprintType)
 enum class ERobotOperationalMode : uint8
 {
-    IDLE    UMETA(DisplayName = "Idle"),
-    MOVING  UMETA(DisplayName = "Moving"),
-    PICKING UMETA(DisplayName = "Picking"),
+    IDLE     UMETA(DisplayName = "Idle"),
+    MOVING   UMETA(DisplayName = "Moving"),
+    PICKING  UMETA(DisplayName = "Picking"),
     CHARGING UMETA(DisplayName = "Charging"),
     OFFLINE  UMETA(DisplayName = "Offline")
 };
 
 /**
- * Mirrors com.smartlogistics.robotstatus.domain.model.Robot
- *Parsed from NATS JSON events.
+ * Comprehensive robot data for simulation telemetry.
+ * Extended with position, cargo, and movement tracking.
  */
 USTRUCT(BlueprintType)
 struct FSmartLogisticRobotData
 {
     GENERATED_BODY()
+
+    // ─── Identity ───────────────────────────────────────────────
 
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "SmartLogistics")
     FString RobotId;
@@ -33,8 +35,12 @@ struct FSmartLogisticRobotData
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "SmartLogistics")
     FString RobotName;
 
+    // ─── Battery ────────────────────────────────────────────────
+
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "SmartLogistics")
     int32 BatteryLevel = 100;
+
+    // ─── Status ─────────────────────────────────────────────────
 
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "SmartLogistics")
     bool bAvailable = true;
@@ -45,7 +51,32 @@ struct FSmartLogisticRobotData
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "SmartLogistics")
     ERobotOperationalMode OperationalMode = ERobotOperationalMode::IDLE;
 
-    /** Timestamp from the event */
+    // ─── Position (UE5 world coordinates) ───────────────────────
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "SmartLogistics")
+    FVector WorldPosition = FVector::ZeroVector;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "SmartLogistics")
+    FRotator WorldRotation = FRotator::ZeroRotator;
+
+    // ─── Movement ───────────────────────────────────────────────
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "SmartLogistics")
+    float Speed = 0.0f;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "SmartLogistics")
+    float DistanceTraveled = 0.0f;
+
+    // ─── Cargo ──────────────────────────────────────────────────
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "SmartLogistics")
+    int32 CarriedItems = 0;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "SmartLogistics")
+    int32 MaxCapacity = 5;
+
+    // ─── Timestamp ──────────────────────────────────────────────
+
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "SmartLogistics")
     FString EventTimestamp;
 };

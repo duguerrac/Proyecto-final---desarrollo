@@ -2,12 +2,18 @@
 
 #include "RobotManager.h"
 #include "WarehouseRobot.h"
+#include "WarehouseEnvironment.h"
 #include "Engine/World.h"
 #include "Kismet/GameplayStatics.h"
+#include "Serialization/JsonSerializer.h"
+#include "Dom/JsonObject.h"
+#include "Serialization/JsonWriter.h"
+#include "TimerManager.h"
 
 ARobotManager::ARobotManager()
 {
-    PrimaryActorTick.bCanEverTick = false;
+    PrimaryActorTick.bCanEverTick = true;
+    PrimaryActorTick.TickInterval = 0.5f;
     NatsClient = nullptr;
 }
 
@@ -18,8 +24,35 @@ void ARobotManager::BeginPlay()
     UE_LOG(LogTemp, Log, TEXT("[RobotManager] Starting SmartLogistics simulation..."));
     UE_LOG(LogTemp, Log, TEXT("[RobotManager] NATS URL: %s | MaxRobots: %d"), *NatsUrl, MaxRobots);
 
-    // Auto-connect to NATS
     ConnectToNats();
+
+    // Publish warehouse layout after a short delay (wait for NATS connection)
+    FTimerHandle LayoutTimerHandle;
+    GetWorldTimerManager().SetTimer(LayoutTimerHandle, [this]()
+    {
+        if (WarehouseEnv && NatsClient && NatsClient->IsConnected())
+        {
+            // Build a simple layout JSON from warehouse environment properties
+            FString LayoutJson = FString::Printf(
+                TEXT("{\"width\":%.1f,\"depth\":%.1f,\"shelfRows\":%d,\"shelfUnitsPerRow\":%d,\"chargingStations\":%d}"),
+                WarehouseEnv->WarehouseWidth,
+                WarehouseEnv->WarehouseDepth,
+                WarehouseEnv->NumShelfRows,
+                WarehouseEnv->NumShelfUnitsPerRow,
+                WarehouseEnv->NumChargingStations
+            );
+            NatsClient->Publish(TEXT("smartlogistic.warehouse.layout"), LayoutJson);
+            UE_LOG(LogTemp, Log, TEXT("[RobotManager] Published warehouse layout"));
+        }
+        else if (!WarehouseEnv)
+        {
+            UE_LOG(LogTemp, Warning, TEXT("[RobotManager] No WarehouseEnv reference set - layout not published"));
+        }
+        else
+        {
+            UE_LOG(LogTemp, Warning, TEXT("[RobotManager] NATS not connected - layout not published"));
+        }
+    }, 3.0f, false);
 }
 
 void ARobotManager::EndPlay(const EEndPlayReason::Type EndPlayReason)
@@ -28,7 +61,22 @@ void ARobotManager::EndPlay(const EEndPlayReason::Type EndPlayReason)
     Super::EndPlay(EndPlayReason);
 }
 
-// ─── Connection Management ──────────────────────────────────────────
+void ARobotManager::Tick(float DeltaTime)
+{
+    Super::Tick(DeltaTime);
+
+    if (TelemetryInterval > 0.0f && NatsClient && NatsClient->IsConnected())
+    {
+        LastTelemetryTime += DeltaTime;
+        if (LastTelemetryTime >= TelemetryInterval)
+        {
+            LastTelemetryTime = 0.0f;
+            PublishTelemetry();
+        }
+    }
+
+    bIsNatsConnected = NatsClient && NatsClient->IsConnected();
+}
 
 void ARobotManager::ConnectToNats()
 {
@@ -38,14 +86,11 @@ void ARobotManager::ConnectToNats()
         return;
     }
 
-    // Create the NATS client as a UObject
     NatsClient = NewObject<UNatsWebSocketClient>(this, TEXT("NatsClient"));
     if (NatsClient)
     {
-        // Bind the event delegate
         NatsClient->OnRobotStatusReceived.AddDynamic(this, &ARobotManager::HandleRobotStatusEvent);
-
-        // Connect
+        NatsClient->OnRobotCommandReceived.AddDynamic(this, &ARobotManager::HandleRobotCommand);
         NatsClient->Connect(NatsUrl);
         bIsNatsConnected = true;
         UE_LOG(LogTemp, Log, TEXT("[RobotManager] NATS client created and connecting..."));
@@ -67,36 +112,35 @@ void ARobotManager::DisconnectFromNats()
     UE_LOG(LogTemp, Log, TEXT("[RobotManager] Disconnected from NATS"));
 }
 
-// ─── Event Handling ─────────────────────────────────────────────────
-
 void ARobotManager::HandleRobotStatusEvent(const FSmartLogisticRobotData& RobotData)
 {
     TotalEventsReceived++;
 
-    UE_LOG(LogTemp, Log, TEXT("[RobotManager] Event #%d → Robot: %s"),
+    UE_LOG(LogTemp, Log, TEXT("[RobotManager] Event #%d -> Robot: %s"),
            TotalEventsReceived, *RobotData.RobotId);
 
-    // Find or create the visual robot actor
     AWarehouseRobot* RobotActor = FindOrCreateRobot(RobotData);
     if (RobotActor)
     {
-        // Update the visual representation
         RobotActor->UpdateFromData(RobotData);
     }
 
-    // Re-broadcast for HUD / other listeners
     OnRobotUpdated.Broadcast(RobotData);
+}
+
+void ARobotManager::HandleRobotCommand(const FString& RobotId, const FString& CommandType, const FString& TargetLocation)
+{
+    UE_LOG(LogTemp, Log, TEXT("[RobotManager] NATS Command: %s -> %s (%s)"), *RobotId, *CommandType, *TargetLocation);
+    SendRobotCommand(RobotId, CommandType, TargetLocation);
 }
 
 AWarehouseRobot* ARobotManager::FindOrCreateRobot(const FSmartLogisticRobotData& Data)
 {
-    // Check if we already have this robot
     if (AWarehouseRobot** Existing = RobotActors.Find(Data.RobotId))
     {
         return *Existing;
     }
 
-    // Check capacity
     if (RobotActors.Num() >= MaxRobots)
     {
         UE_LOG(LogTemp, Warning, TEXT("[RobotManager] Max robots (%d) reached. Ignoring %s"),
@@ -104,7 +148,6 @@ AWarehouseRobot* ARobotManager::FindOrCreateRobot(const FSmartLogisticRobotData&
         return nullptr;
     }
 
-    // Spawn a new robot actor
     UWorld* World = GetWorld();
     if (!World) return nullptr;
 
@@ -138,14 +181,13 @@ AWarehouseRobot* ARobotManager::FindOrCreateRobot(const FSmartLogisticRobotData&
 
 FVector ARobotManager::GetSlotPosition(int32 SlotIndex) const
 {
-    // Arrange robots in a grid relative to this actor's world position
-    int32 Cols = 5;  // 5 robots per row
+    int32 Cols = 5;
     int32 Row = SlotIndex / Cols;
     int32 Col = SlotIndex % Cols;
 
     return GetActorLocation() + SpawnOrigin + FVector(
         Row * RobotSpacing,
-        (Col - Cols / 2) * RobotSpacing,  // centered on Y axis
+        (Col - Cols / 2) * RobotSpacing,
         0.0f
     );
 }
@@ -159,5 +201,149 @@ void ARobotManager::GetAllRobotData(TArray<FSmartLogisticRobotData>& OutData) co
         {
             OutData.Add(Pair.Value->GetCurrentData());
         }
+    }
+}
+
+void ARobotManager::PublishTelemetry()
+{
+    if (!NatsClient || !NatsClient->IsConnected()) return;
+    if (RobotActors.Num() == 0) return;
+
+    FString JsonArray;
+    JsonArray += TEXT("[");
+
+    int32 Count = 0;
+    for (const auto& Pair : RobotActors)
+    {
+        if (!Pair.Value) continue;
+        const FSmartLogisticRobotData& Data = Pair.Value->GetCurrentData();
+
+        FString ModeStr;
+        switch (Data.OperationalMode)
+        {
+        case ERobotOperationalMode::IDLE:     ModeStr = TEXT("IDLE"); break;
+        case ERobotOperationalMode::MOVING:   ModeStr = TEXT("MOVING"); break;
+        case ERobotOperationalMode::PICKING:  ModeStr = TEXT("PICKING"); break;
+        case ERobotOperationalMode::CHARGING: ModeStr = TEXT("CHARGING"); break;
+        case ERobotOperationalMode::OFFLINE:  ModeStr = TEXT("OFFLINE"); break;
+        default:                              ModeStr = TEXT("IDLE"); break;
+        }
+
+        if (Count > 0) JsonArray += TEXT(",");
+
+        JsonArray += FString::Printf(
+            TEXT("{\"id\":\"%s\",\"name\":\"%s\",\"batteryLevel\":%d,\"available\":%s,"
+                 "\"currentLocation\":\"%s\",\"operationalMode\":\"%s\","
+                 "\"position\":{\"x\":%.1f,\"y\":%.1f,\"z\":%.1f},"
+                 "\"speed\":%.1f,\"distanceTraveled\":%.1f,"
+                 "\"carriedItems\":%d,\"maxCapacity\":%d}"),
+            *Data.RobotId,
+            *Data.RobotName,
+            Data.BatteryLevel,
+            Data.bAvailable ? TEXT("true") : TEXT("false"),
+            *Data.CurrentLocation,
+            *ModeStr,
+            Data.WorldPosition.X, Data.WorldPosition.Y, Data.WorldPosition.Z,
+            Data.Speed,
+            Data.DistanceTraveled,
+            Data.CarriedItems,
+            Data.MaxCapacity
+        );
+
+        // Also publish per-robot event for Java backend to consume
+        FString PerRobotJson = FString::Printf(
+            TEXT("{\"event\":\"SIMULATION_TELEMETRY\","
+                 "\"timestamp\":\"%s\","
+                 "\"source\":\"ue5-simulation\","
+                 "\"robot\":{\"id\":\"%s\",\"name\":\"%s\","
+                 "\"batteryLevel\":%d,\"available\":%s,"
+                 "\"currentLocation\":\"%s\",\"operationalMode\":\"%s\","
+                 "\"position\":{\"x\":%.1f,\"y\":%.1f,\"z\":%.1f},"
+                 "\"speed\":%.1f,\"distanceTraveled\":%.1f,"
+                 "\"carriedItems\":%d,\"maxCapacity\":%d}}"),
+            *FDateTime::UtcNow().ToIso8601(),
+            *Data.RobotId,
+            *Data.RobotName,
+            Data.BatteryLevel,
+            Data.bAvailable ? TEXT("true") : TEXT("false"),
+            *Data.CurrentLocation,
+            *ModeStr,
+            Data.WorldPosition.X, Data.WorldPosition.Y, Data.WorldPosition.Z,
+            Data.Speed,
+            Data.DistanceTraveled,
+            Data.CarriedItems,
+            Data.MaxCapacity
+        );
+
+        FString PerRobotSubject = FString::Printf(TEXT("smartlogistic.robot.telemetry.%s"), *Data.RobotId);
+        NatsClient->Publish(PerRobotSubject, PerRobotJson);
+
+        Count++;
+    }
+
+    JsonArray += TEXT("]");
+
+    // Keep batch telemetry for any other consumers
+    NatsClient->Publish(TEXT("smartlogistic.simulation.telemetry"), JsonArray);
+
+    UE_LOG(LogTemp, Verbose, TEXT("[RobotManager] Published telemetry for %d robots (batch + per-robot)"), Count);
+}
+
+void ARobotManager::SendRobotCommand(const FString& TargetRobotId, const FString& CommandType, const FString& TargetLocation)
+{
+    AWarehouseRobot** Found = RobotActors.Find(TargetRobotId);
+    if (!Found || !*Found)
+    {
+        UE_LOG(LogTemp, Warning, TEXT("[RobotManager] Robot '%s' not found for command"), *TargetRobotId);
+        return;
+    }
+
+    AWarehouseRobot* Robot = *Found;
+
+    if (CommandType == TEXT("GO_TO"))
+    {
+        TArray<FString> Parts;
+        TargetLocation.ParseIntoArray(Parts, TEXT(","), true);
+        if (Parts.Num() >= 3)
+        {
+            FVector Target(FCString::Atof(*Parts[0]), FCString::Atof(*Parts[1]), FCString::Atof(*Parts[2]));
+            Robot->MoveTo(Target);
+        }
+    }
+    else if (CommandType == TEXT("PICK_UP"))
+    {
+        Robot->PickUpItem();
+    }
+    else if (CommandType == TEXT("DROP_OFF"))
+    {
+        Robot->DropOffItems();
+    }
+    else if (CommandType == TEXT("RETURN_DOCK"))
+    {
+        if (ChargingStations.Num() > 0)
+        {
+            FVector RobotPos = Robot->GetActorLocation();
+            FVector Nearest = ChargingStations[0];
+            float MinDist = FVector::Dist(RobotPos, Nearest);
+
+            for (const FVector& Station : ChargingStations)
+            {
+                float Dist = FVector::Dist(RobotPos, Station);
+                if (Dist < MinDist)
+                {
+                    MinDist = Dist;
+                    Nearest = Station;
+                }
+            }
+            Robot->GoCharge(Nearest);
+        }
+        else
+        {
+            UE_LOG(LogTemp, Warning, TEXT("[RobotManager] No charging stations configured!"));
+        }
+    }
+    else
+    {
+        UE_LOG(LogTemp, Warning, TEXT("[RobotManager] Unknown command: %s"), *CommandType);
     }
 }

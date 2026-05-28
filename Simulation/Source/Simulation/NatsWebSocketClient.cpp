@@ -94,6 +94,30 @@ bool UNatsWebSocketClient::IsConnected() const
     return bNatsConnected;
 }
 
+bool UNatsWebSocketClient::Publish(const FString& Subject, const FString& JsonPayload)
+{
+    if (!NatsSocket || !bNatsConnected)
+    {
+        UE_LOG(LogTemp, Warning, TEXT("[NATS-TCP] Cannot publish - not connected"));
+        return false;
+    }
+
+    FString PubCmd = FString::Printf(TEXT("PUB %s %d\r\n%s\r\n"),
+        *Subject, JsonPayload.Len(), *JsonPayload);
+    bool bSuccess = SendString(PubCmd);
+
+    if (bSuccess)
+    {
+        UE_LOG(LogTemp, Verbose, TEXT("[NATS-TCP] Published to '%s' (%d bytes)"), *Subject, JsonPayload.Len());
+    }
+    else
+    {
+        UE_LOG(LogTemp, Error, TEXT("[NATS-TCP] Failed to publish to '%s'"), *Subject);
+    }
+
+    return bSuccess;
+}
+
 void UNatsWebSocketClient::TickReadSocket()
 {
     if (!NatsSocket) return;
@@ -145,6 +169,7 @@ void UNatsWebSocketClient::ProcessLine(const FString& Line)
         UE_LOG(LogTemp, Log, TEXT("[NATS-TCP] INFO received"));
         SendNatsConnect();
         SendNatsSubscribe(TEXT("smartlogistic.robot.status.>"));
+        SendNatsSubscribe(TEXT("smartlogistic.robot.command.>"));
     }
     else if (Line.StartsWith(TEXT("+OK")))
     {
@@ -202,6 +227,17 @@ void UNatsWebSocketClient::ProcessLine(const FString& Line)
                     }
                 }
             }
+            else if (EventType == TEXT("ROBOT_COMMAND"))
+            {
+                FString RobotId = JsonObject->GetStringField(TEXT("robotId"));
+                FString CmdType = JsonObject->GetStringField(TEXT("commandType"));
+                FString TargetLoc;
+                if (JsonObject->HasField(TEXT("targetLocation")))
+                    TargetLoc = JsonObject->GetStringField(TEXT("targetLocation"));
+
+                OnRobotCommandReceived.Broadcast(RobotId, CmdType, TargetLoc);
+                UE_LOG(LogTemp, Log, TEXT("[NATS-TCP] Command: %s -> %s (%s)"), *RobotId, *CmdType, *TargetLoc);
+            }
             else
             {
                 UE_LOG(LogTemp, Warning, TEXT("[NATS-TCP] Unknown event: %s"), *EventType);
@@ -239,7 +275,6 @@ bool UNatsWebSocketClient::SendString(const FString& Str)
 FSmartLogisticRobotData UNatsWebSocketClient::ParseRobotJson(const TSharedPtr<FJsonObject>& Json)
 {
     FSmartLogisticRobotData Data;
-    // Java sends "id" and "name", not "robotId" and "robotName"
     Data.RobotId = Json->GetStringField(TEXT("id"));
     Data.RobotName = Json->GetStringField(TEXT("name"));
     Data.BatteryLevel = Json->GetIntegerField(TEXT("batteryLevel"));

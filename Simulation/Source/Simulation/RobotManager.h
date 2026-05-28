@@ -9,6 +9,7 @@
 #include "RobotManager.generated.h"
 
 class AWarehouseRobot;
+class AWarehouseEnvironment;
 
 /**
  * Central manager for the SmartLogistics warehouse simulation.
@@ -25,6 +26,7 @@ public:
 
     virtual void BeginPlay() override;
     virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
+    virtual void Tick(float DeltaTime) override;
 
     // ─── Configuration (set in level editor) ─────────────────────
 
@@ -59,6 +61,29 @@ public:
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "SmartLogistics|Status")
     bool bIsNatsConnected = false;
 
+    // ─── Warehouse Environment Reference ────────────────────────
+
+    /** Reference to the warehouse environment actor (for layout publishing) */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SmartLogistics|Config")
+    AWarehouseEnvironment* WarehouseEnv = nullptr;
+
+    // ─── Charging Stations (set in level editor) ────────────────
+
+    /** Positions of charging stations in the warehouse */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SmartLogistics|Charging")
+    TArray<FVector> ChargingStations;
+
+    // ─── Telemetry ──────────────────────────────────────────────
+
+    /** How often to publish telemetry (seconds). 0 = disabled. */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SmartLogistics|Telemetry",
+              meta = (ClampMin = "0.0", ClampMax = "60.0"))
+    float TelemetryInterval = 2.0f;
+
+    /** Last telemetry publish time */
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "SmartLogistics|Telemetry")
+    float LastTelemetryTime = 0.0f;
+
     // ─── Actions ─────────────────────────────────────────────────
 
     /** Manually connect to NATS (called automatically in BeginPlay). */
@@ -72,6 +97,14 @@ public:
     /** Get all tracked robot data as array. */
     UFUNCTION(BlueprintCallable, Category = "SmartLogistics")
     void GetAllRobotData(TArray<FSmartLogisticRobotData>& OutData) const;
+
+    /** Publish all robot telemetry to NATS */
+    UFUNCTION(BlueprintCallable, Category = "SmartLogistics")
+    void PublishTelemetry();
+
+    /** Send a command to a specific robot */
+    UFUNCTION(BlueprintCallable, Category = "SmartLogistics")
+    void SendRobotCommand(const FString& RobotId, const FString& CommandType, const FString& TargetLocation);
 
     // ─── Delegates ───────────────────────────────────────────────
 
@@ -94,6 +127,10 @@ private:
     /** Handle incoming NATS event. */
     UFUNCTION()
     void HandleRobotStatusEvent(const FSmartLogisticRobotData& RobotData);
+
+    /** Handle incoming NATS command. */
+    UFUNCTION()
+    void HandleRobotCommand(const FString& RobotId, const FString& CommandType, const FString& TargetLocation);
 
     /** Find or create a robot actor for the given ID. */
     AWarehouseRobot* FindOrCreateRobot(const FSmartLogisticRobotData& Data);
