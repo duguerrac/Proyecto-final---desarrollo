@@ -38,6 +38,10 @@ public:
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SmartLogistics|Config")
     FString WarehouseApiUrl = TEXT("http://localhost:8081");
 
+    /** Robot Status API URL (no trailing slash). */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SmartLogistics|Config")
+    FString RobotApiUrl = TEXT("http://localhost:8082");
+
     /** How many robot slots to pre-allocate in the scene. */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SmartLogistics|Config",
               meta = (ClampMin = "1", ClampMax = "50"))
@@ -162,4 +166,7 @@ private:
 
     /** Compute world position for robot slot index. */
     FVector GetSlotPosition(int32 SlotIndex) const;
+
+    /** Fetch robots from the robot-status backend API and spawn actors. */
+    void FetchRobotsFromBackend();
 };

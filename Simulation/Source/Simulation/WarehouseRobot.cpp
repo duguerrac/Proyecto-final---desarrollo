@@ -11,9 +11,14 @@ AWarehouseRobot::AWarehouseRobot()
     PrimaryActorTick.bCanEverTick = true;
     PrimaryActorTick.TickInterval = 0.016f; // ~60 FPS
 
-    // ─── Root / Body Mesh ────────────────────────────────────────
+    // ─── Root Scene (so body can be offset upward from floor) ────
+    USceneComponent* SceneRoot = CreateDefaultSubobject<USceneComponent>(TEXT("SceneRoot"));
+    RootComponent = SceneRoot;
+
+    // ─── Body Mesh (offset up so it sits ON the floor, not through it) ──
     BodyMesh = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("BodyMesh"));
-    RootComponent = BodyMesh;
+    BodyMesh->SetupAttachment(RootComponent);
+    BodyMesh->SetRelativeLocation(FVector(0.0f, 0.0f, 30.0f)); // Half of body height (60cm * 0.6 / 2)
 
     static ConstructorHelpers::FObjectFinder<UStaticMesh> CubeMesh(
         TEXT("/Engine/BasicShapes/Cube.Cube"));

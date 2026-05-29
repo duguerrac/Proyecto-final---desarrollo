@@ -46,6 +46,13 @@ void ARobotManager::BeginPlay()
 
     ConnectToNats();
 
+    // Fetch robots from backend API after a short delay (let warehouse env build first)
+    FTimerHandle RobotFetchTimerHandle;
+    GetWorldTimerManager().SetTimer(RobotFetchTimerHandle, [this]()
+    {
+        FetchRobotsFromBackend();
+    }, 6.0f, false);
+
     // Wait for WarehouseEnvironment to finish its own layout fetch (it does this in BeginPlay),
     // then extract charging stations and publish layout via NATS.
     FTimerHandle PostLayoutTimerHandle;
@@ -201,12 +208,16 @@ AWarehouseRobot* ARobotManager::FindOrCreateRobot(const FSmartLogisticRobotData&
             }
         }
 
-        // 2. Fall back to default warehouse spawn position
+        // 2. Fall back to default warehouse spawn position + spread by slot index
         if (!bPositionFound)
         {
             SpawnPos = WarehouseEnv->GetDefaultSpawnPosition();
-            UE_LOG(LogTemp, Log, TEXT("[RobotManager] Robot '%s' spawned at default warehouse position: %s"),
-                *Data.RobotId, *SpawnPos.ToString());
+            // Offset each robot so they don't overlap
+            float SpreadX = 200.0f * (SlotIndex % 5);
+            float SpreadY = 200.0f * (SlotIndex / 5);
+            SpawnPos += FVector(SpreadX, SpreadY, 0.0f);
+            UE_LOG(LogTemp, Log, TEXT("[RobotManager] Robot '%s' spawned at spread position (slot %d): %s"),
+                *Data.RobotId, SlotIndex, *SpawnPos.ToString());
         }
     }
     else
@@ -654,4 +665,82 @@ void ARobotManager::PublishMissionEvent(const FString& EventType, const FString&
 
     UE_LOG(LogTemp, Log, TEXT("[RobotManager] Published mission event: %s for robot=%s, package=%lld"),
         *EventType, *RobotId, PackageId);
+}
+
+// ─── Robot Sync from Backend ────────────────────────────────────────
+
+void ARobotManager::FetchRobotsFromBackend()
+{
+    FString Url = RobotApiUrl + TEXT("/api/robots");
+    UE_LOG(LogTemp, Log, TEXT("[RobotManager] Fetching robots from backend: %s"), *Url);
+
+    TSharedRef<IHttpRequest, ESPMode::ThreadSafe> Request = FHttpModule::Get().CreateRequest();
+    Request->SetURL(Url);
+    Request->SetVerb(TEXT("GET"));
+    Request->SetHeader(TEXT("Content-Type"), TEXT("application/json"));
+    Request->SetTimeout(10.0f);
+
+    Request->OnProcessRequestComplete().BindLambda([this](FHttpRequestPtr Req, FHttpResponsePtr Resp, bool bSuccess)
+    {
+        if (!bSuccess || !Resp.IsValid())
+        {
+            UE_LOG(LogTemp, Warning, TEXT("[RobotManager] Robot fetch failed (no response)"));
+            return;
+        }
+
+        int32 Code = Resp->GetResponseCode();
+        FString Body = Resp->GetContentAsString();
+
+        if (Code != 200)
+        {
+            UE_LOG(LogTemp, Warning, TEXT("[RobotManager] Robot fetch returned HTTP %d: %s"), Code, *Body);
+            return;
+        }
+
+        UE_LOG(LogTemp, Log, TEXT("[RobotManager] Robot response received (%d bytes)"), Body.Len());
+
+        // Parse JSON array
+        TArray<TSharedPtr<FJsonValue>> JsonArray;
+        TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(Body);
+
+        if (!FJsonSerializer::Deserialize(Reader, JsonArray))
+        {
+            UE_LOG(LogTemp, Error, TEXT("[RobotManager] Failed to parse robots JSON"));
+            return;
+        }
+
+        int32 SpawnedCount = 0;
+        for (const TSharedPtr<FJsonValue>& Item : JsonArray)
+        {
+            TSharedPtr<FJsonObject> Obj = Item->AsObject();
+            if (!Obj.IsValid()) continue;
+
+            FSmartLogisticRobotData Data;
+            Data.RobotId = Obj->GetStringField(TEXT("id"));
+            Data.RobotName = Obj->GetStringField(TEXT("name"));
+            Data.BatteryLevel = Obj->GetIntegerField(TEXT("batteryLevel"));
+            Data.bAvailable = Obj->GetBoolField(TEXT("available"));
+            Data.CurrentLocation = Obj->GetStringField(TEXT("currentLocation"));
+
+            FString ModeStr = Obj->GetStringField(TEXT("operationalMode"));
+            if (ModeStr == TEXT("IDLE"))        Data.OperationalMode = ERobotOperationalMode::IDLE;
+            else if (ModeStr == TEXT("MOVING")) Data.OperationalMode = ERobotOperationalMode::MOVING;
+            else if (ModeStr == TEXT("PICKING"))Data.OperationalMode = ERobotOperationalMode::PICKING;
+            else if (ModeStr == TEXT("CHARGING"))Data.OperationalMode = ERobotOperationalMode::CHARGING;
+            else if (ModeStr == TEXT("OFFLINE"))Data.OperationalMode = ERobotOperationalMode::OFFLINE;
+            else                                Data.OperationalMode = ERobotOperationalMode::IDLE;
+
+            AWarehouseRobot* Robot = FindOrCreateRobot(Data);
+            if (Robot)
+            {
+                Robot->UpdateFromData(Data);
+                SpawnedCount++;
+            }
+        }
+
+        UE_LOG(LogTemp, Log, TEXT("[RobotManager] Synced %d robots from backend (total actors: %d)"),
+            SpawnedCount, RobotActors.Num());
+    });
+
+    Request->ProcessRequest();
 }
