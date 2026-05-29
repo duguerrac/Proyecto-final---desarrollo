@@ -97,24 +97,6 @@ services:
     networks:
       - smartlogistic-net
 
-  rabbitmq:
-    image: rabbitmq:3.13-management-alpine
-    container_name: smartlogistic-rabbitmq
-    restart: unless-stopped
-    ports:
-      - "${RABBITMQ_PORT:-5672}:5672"
-      - "${RABBITMQ_MGMT_PORT:-15672}:15672"
-    volumes:
-      - rabbitmq_data:/var/lib/rabbitmq
-    healthcheck:
-      test: ["CMD", "rabbitmq-diagnostics", "ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 20s
-    networks:
-      - smartlogistic-net
-
   jaeger:
     image: jaegertracing/all-in-one:latest
     container_name: smartlogistic-jaeger
@@ -162,8 +144,7 @@ services:
       SPRING_DATASOURCE_URL: jdbc:postgresql://warehouse-db:5432/${WAREHOUSE_POSTGRES_DB:-warehouse_db}
       SPRING_DATASOURCE_USERNAME: ${WAREHOUSE_POSTGRES_USER:-warehouse}
       SPRING_DATASOURCE_PASSWORD: ${WAREHOUSE_POSTGRES_PASSWORD:-warehouse_pass}
-      SPRING_RABBITMQ_HOST: rabbitmq
-      SPRING_RABBITMQ_PORT: 5672
+      NATS_URL: nats://nats:4222
       ROBOT_STATUS_URL: http://ms-robot-status:8082
       MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE: prometheus,health,info
       MANAGEMENT_TRACING_SAMPLING_PROBABILITY: "1.0"
@@ -171,8 +152,8 @@ services:
     depends_on:
       warehouse-db:
         condition: service_healthy
-      rabbitmq:
-        condition: service_healthy
+      nats:
+        condition: service_started
       ms-robot-status:
         condition: service_started
     networks:
@@ -221,16 +202,15 @@ services:
     environment:
       SERVER_PORT: 8083
       SPRING_DATA_MONGODB_URI: mongodb://analytics-db:27017/${MONGO_DB:-logistics_analytics}
-      SPRING_RABBITMQ_HOST: rabbitmq
-      SPRING_RABBITMQ_PORT: 5672
+      NATS_URL: nats://nats:4222
       MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE: prometheus,health,info
       MANAGEMENT_TRACING_SAMPLING_PROBABILITY: "1.0"
       OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4318
     depends_on:
       analytics-db:
         condition: service_healthy
-      rabbitmq:
-        condition: service_healthy
+      nats:
+        condition: service_started
     networks:
       - smartlogistic-net
 
@@ -325,7 +305,6 @@ volumes:
   warehouse_postgres_data:
   redis_data:
   mongo_data:
-  rabbitmq_data:
   prometheus_data:
   grafana_data:
   loki_data:

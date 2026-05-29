@@ -36,8 +36,19 @@ public class SpotJpaEntity {
 
     public Long getId() { return id; }
     public String getCode() { return code; }
+    public void setCode(String code) { this.code = code; }
     public String getAisle() { return aisle; }
+    public void setAisle(String aisle) { this.aisle = aisle; }
     public String getSection() { return section; }
+    public void setSection(String section) { this.section = section; }
     public int getLevel() { return level; }
+    public void setLevel(int level) { this.level = level; }
     public Long getRootPointId() { return rootPointId; }
+    public void setRootPointId(Long rootPointId) { this.rootPointId = rootPointId; }
+    public BigDecimal getX() { return x; }
+    public void setX(BigDecimal x) { this.x = x; }
+    public BigDecimal getY() { return y; }
+    public void setY(BigDecimal y) { this.y = y; }
+    public BigDecimal getZ() { return z; }
+    public void setZ(BigDecimal z) { this.z = z; }
 }

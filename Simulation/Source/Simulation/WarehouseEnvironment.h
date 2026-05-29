@@ -29,6 +29,117 @@ struct FWarehouseLocation
 };
 
 /**
+ * A single cell from the backend layout API.
+ * Matches: CellDTO { rowIndex, colIndex, cellType }
+ */
+USTRUCT(BlueprintType)
+struct FLayoutCell
+{
+    GENERATED_BODY()
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
+    int32 RowIndex = 0;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
+    int32 ColIndex = 0;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
+    FString CellType; // EMPTY, SHELF, ROBOT_CHARGE, ORDER_ENTRY, ORDER_EXIT, OBSTACLE
+
+    FLayoutCell() {}
+    FLayoutCell(int32 InRow, int32 InCol, const FString& InType)
+        : RowIndex(InRow), ColIndex(InCol), CellType(InType) {}
+};
+
+/**
+ * An inventory item within a spot.
+ * Matches: SpotItemDTO { itemId, name, sku, quantityAvailable }
+ */
+USTRUCT(BlueprintType)
+struct FSpotItemData
+{
+    GENERATED_BODY()
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
+    int64 ItemId = 0;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
+    FString ItemName;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
+    FString Sku;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
+    int32 QuantityAvailable = 0;
+
+    FSpotItemData() {}
+};
+
+/**
+ * A warehouse storage spot (shelf location).
+ * Matches: SpotDTO { id, code, aisle, section, x, y, items[] }
+ */
+USTRUCT(BlueprintType)
+struct FSpotData
+{
+    GENERATED_BODY()
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
+    int64 SpotId = 0;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
+    FString Code;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
+    FString Aisle;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
+    FString Section;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
+    float X = 0.f;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
+    float Y = 0.f;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
+    TArray<FSpotItemData> Items;
+
+    FSpotData() {}
+};
+
+/**
+ * Layout data fetched from the warehouse-core API.
+ * Matches: LayoutResponse { id, name, rows, cols, cellSize, status, cells[] }
+ */
+USTRUCT(BlueprintType)
+struct FWarehouseLayoutData
+{
+    GENERATED_BODY()
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
+    int64 LayoutId = 0;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
+    FString LayoutName;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
+    int32 Rows = 0;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
+    int32 Cols = 0;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
+    float CellSize = 200.0f; // UE units per cell
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
+    FString Status;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
+    TArray<FLayoutCell> Cells;
+};
+
+/**
  * Procedural warehouse environment builder.
  * Place this actor in the level and it auto-generates:
  *   - Floor, walls, ceiling
@@ -36,6 +147,8 @@ struct FWarehouseLocation
  *   - Charging stations (cyan platforms)
  *   - Delivery/dock area (orange platform)
  *   - Navigation markers
+ *
+ * Now supports dynamic layout from backend API via BuildFromLayout().
  */
 UCLASS(BlueprintType, Category = "SmartLogistics")
 class AWarehouseEnvironment : public AActor
@@ -44,6 +157,7 @@ class AWarehouseEnvironment : public AActor
 
 public:
     AWarehouseEnvironment();
+    virtual void BeginPlay() override;
     virtual void OnConstruction(const FTransform& Transform) override;
 
     // ─── Warehouse Dimensions ────────────────────────────────────
@@ -102,6 +216,16 @@ public:
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Warehouse|Pickup")
     int32 PendingPickupItems = 0;
 
+    // ─── Dynamic Layout State ────────────────────────────────────
+
+    /** The current layout data from the backend API */
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Warehouse|Layout")
+    FWarehouseLayoutData CurrentLayout;
+
+    /** Whether we are using a dynamic layout from the API */
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Warehouse|Layout")
+    bool bUsingDynamicLayout = false;
+
     // ─── Named Locations ─────────────────────────────────────────
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Warehouse|Locations")
     TArray<FWarehouseLocation> Locations;
@@ -114,6 +238,39 @@ public:
 
     /** Get all locations as JSON string */
     FString GetLayoutJson() const;
+
+    // ─── Dynamic Layout API ──────────────────────────────────────
+
+    /**
+     * Rebuild the entire warehouse from a layout received from the backend API.
+     * Clears all procedural components and rebuilds floor, walls, and all cells.
+     */
+    UFUNCTION(BlueprintCallable, Category = "SmartLogistics")
+    void BuildFromLayout(const FWarehouseLayoutData& LayoutData);
+
+    /**
+     * Convert a grid cell (row, col) to UE world position.
+     * Returns the center of the cell in world space.
+     */
+    FVector CellToWorldPosition(int32 Row, int32 Col) const;
+
+    /**
+     * Get cell size currently in use (from dynamic layout or default).
+     */
+    float GetCellSize() const;
+
+    // ─── Spot Inventory API ──────────────────────────────────────
+
+    /** Cached spot data, keyed by spot code (e.g. "S-A1-01") */
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Warehouse|Spots")
+    TMap<FString, FSpotData> SpotMap;
+
+    /** Fetch all spots with items from backend API and update SpotMap */
+    UFUNCTION(BlueprintCallable, Category = "SmartLogistics")
+    void FetchSpotsFromBackend();
+
+    /** Get spot data by code */
+    bool GetSpotByCode(const FString& Code, FSpotData& OutSpot) const;
 
 private:
     UPROPERTY()
@@ -134,4 +291,10 @@ private:
     void BuildPickupZone();
     void BuildLabels();
     void BuildLocationMap();
+
+    // ─── Dynamic layout builders ─────────────────────────────────
+    void BuildDynamicFloor(int32 Rows, int32 Cols, float CellSz);
+    void BuildDynamicWalls(int32 Rows, int32 Cols, float CellSz);
+    void BuildDynamicCells(const FWarehouseLayoutData& LayoutData);
+    void BuildDynamicLocationMap(const FWarehouseLayoutData& LayoutData);
 };

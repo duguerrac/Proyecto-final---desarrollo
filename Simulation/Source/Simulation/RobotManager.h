@@ -34,6 +34,10 @@ public:
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SmartLogistics|Config")
     FString NatsUrl = TEXT("127.0.0.1:4222");
 
+    /** Warehouse Core API URL (no trailing slash). */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SmartLogistics|Config")
+    FString WarehouseApiUrl = TEXT("http://localhost:8081");
+
     /** How many robot slots to pre-allocate in the scene. */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SmartLogistics|Config",
               meta = (ClampMin = "1", ClampMax = "50"))
@@ -105,6 +109,14 @@ public:
     /** Send a command to a specific robot */
     UFUNCTION(BlueprintCallable, Category = "SmartLogistics")
     void SendRobotCommand(const FString& RobotId, const FString& CommandType, const FString& TargetLocation);
+
+    /** Fetch the active layout from warehouse-core API and rebuild the environment. */
+    UFUNCTION(BlueprintCallable, Category = "SmartLogistics")
+    void FetchAndApplyWarehouseLayout();
+
+    /** Apply a layout from a raw JSON string (for NATS event-driven updates). */
+    UFUNCTION(BlueprintCallable, Category = "SmartLogistics")
+    void ApplyWarehouseLayoutFromJson(const FString& JsonString);
 
     // ─── Delegates ───────────────────────────────────────────────
 

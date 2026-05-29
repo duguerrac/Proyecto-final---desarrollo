@@ -9,6 +9,9 @@
 #include "Dom/JsonObject.h"
 #include "Serialization/JsonWriter.h"
 #include "TimerManager.h"
+#include "HttpModule.h"
+#include "Interfaces/IHttpRequest.h"
+#include "Interfaces/IHttpResponse.h"
 
 ARobotManager::ARobotManager()
 {
@@ -26,32 +29,28 @@ void ARobotManager::BeginPlay()
 
     ConnectToNats();
 
-    // Publish warehouse layout after a short delay (wait for NATS connection)
+    // Try to fetch dynamic layout from warehouse-core API after a short delay.
+    // Falls back to the static WarehouseEnvironment if the API is unavailable.
     FTimerHandle LayoutTimerHandle;
     GetWorldTimerManager().SetTimer(LayoutTimerHandle, [this]()
     {
-        if (WarehouseEnv && NatsClient && NatsClient->IsConnected())
+        UE_LOG(LogTemp, Log, TEXT("[RobotManager] Attempting to fetch layout from warehouse-core API..."));
+        FetchAndApplyWarehouseLayout();
+
+        // Also publish static layout as fallback after a delay
+        FTimerHandle FallbackTimerHandle;
+        GetWorldTimerManager().SetTimer(FallbackTimerHandle, [this]()
         {
-            // Build a simple layout JSON from warehouse environment properties
-            FString LayoutJson = FString::Printf(
-                TEXT("{\"width\":%.1f,\"depth\":%.1f,\"shelfRows\":%d,\"shelfUnitsPerRow\":%d,\"chargingStations\":%d}"),
-                WarehouseEnv->WarehouseWidth,
-                WarehouseEnv->WarehouseDepth,
-                WarehouseEnv->NumShelfRows,
-                WarehouseEnv->NumShelfUnitsPerRow,
-                WarehouseEnv->NumChargingStations
-            );
-            NatsClient->Publish(TEXT("smartlogistic.warehouse.layout"), LayoutJson);
-            UE_LOG(LogTemp, Log, TEXT("[RobotManager] Published warehouse layout"));
-        }
-        else if (!WarehouseEnv)
-        {
-            UE_LOG(LogTemp, Warning, TEXT("[RobotManager] No WarehouseEnv reference set - layout not published"));
-        }
-        else
-        {
-            UE_LOG(LogTemp, Warning, TEXT("[RobotManager] NATS not connected - layout not published"));
-        }
+            if (WarehouseEnv && !WarehouseEnv->bUsingDynamicLayout)
+            {
+                UE_LOG(LogTemp, Log, TEXT("[RobotManager] No dynamic layout received, using static environment"));
+                if (NatsClient && NatsClient->IsConnected())
+                {
+                    FString LayoutJson = WarehouseEnv->GetLayoutJson();
+                    NatsClient->Publish(TEXT("smartlogistic.warehouse.layout"), LayoutJson);
+                }
+            }
+        }, 5.0f, false);
     }, 3.0f, false);
 }
 
@@ -345,5 +344,128 @@ void ARobotManager::SendRobotCommand(const FString& TargetRobotId, const FString
     else
     {
         UE_LOG(LogTemp, Warning, TEXT("[RobotManager] Unknown command: %s"), *CommandType);
+    }
+}
+
+// ─── Warehouse Layout Fetch ────────────────────────────────────────
+
+void ARobotManager::FetchAndApplyWarehouseLayout()
+{
+    FString Url = WarehouseApiUrl + TEXT("/api/layouts/active");
+    UE_LOG(LogTemp, Log, TEXT("[RobotManager] Fetching warehouse layout from: %s"), *Url);
+
+    TSharedRef<IHttpRequest, ESPMode::ThreadSafe> Request = FHttpModule::Get().CreateRequest();
+    Request->SetURL(Url);
+    Request->SetVerb(TEXT("GET"));
+    Request->SetHeader(TEXT("Content-Type"), TEXT("application/json"));
+    Request->SetTimeout(10.0f);
+
+    Request->OnProcessRequestComplete().BindLambda([this](FHttpRequestPtr Req, FHttpResponsePtr Resp, bool bSuccess)
+    {
+        if (!bSuccess || !Resp.IsValid())
+        {
+            UE_LOG(LogTemp, Warning, TEXT("[RobotManager] Layout fetch failed (no response)"));
+            return;
+        }
+
+        int32 Code = Resp->GetResponseCode();
+        FString Body = Resp->GetContentAsString();
+
+        if (Code != 200)
+        {
+            UE_LOG(LogTemp, Warning, TEXT("[RobotManager] Layout fetch returned HTTP %d: %s"), Code, *Body);
+            return;
+        }
+
+        UE_LOG(LogTemp, Log, TEXT("[RobotManager] Layout response received (%d bytes)"), Body.Len());
+        ApplyWarehouseLayoutFromJson(Body);
+    });
+
+    Request->ProcessRequest();
+}
+
+void ARobotManager::ApplyWarehouseLayoutFromJson(const FString& JsonString)
+{
+    TSharedPtr<FJsonObject> RootObj;
+    TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(JsonString);
+
+    if (!FJsonSerializer::Deserialize(Reader, RootObj) || !RootObj.IsValid())
+    {
+        UE_LOG(LogTemp, Error, TEXT("[RobotManager] Failed to parse layout JSON"));
+        return;
+    }
+
+    FWarehouseLayoutData LayoutData;
+
+    // Parse top-level fields
+    LayoutData.LayoutId = static_cast<int64>(RootObj->GetNumberField(TEXT("id")));
+    LayoutData.LayoutName = RootObj->GetStringField(TEXT("name"));
+    LayoutData.Rows = RootObj->GetIntegerField(TEXT("rows"));
+    LayoutData.Cols = RootObj->GetIntegerField(TEXT("cols"));
+
+    // cellSize is optional, default 200
+    if (RootObj->HasField(TEXT("cellSize")))
+    {
+        LayoutData.CellSize = static_cast<float>(RootObj->GetNumberField(TEXT("cellSize")));
+    }
+    else
+    {
+        LayoutData.CellSize = 200.0f;
+    }
+
+    if (RootObj->HasField(TEXT("status")))
+    {
+        LayoutData.Status = RootObj->GetStringField(TEXT("status"));
+    }
+
+    // Parse cells array
+    const TArray<TSharedPtr<FJsonValue>>* CellsArray;
+    if (RootObj->TryGetArrayField(TEXT("cells"), CellsArray))
+    {
+        for (const TSharedPtr<FJsonValue>& CellValue : *CellsArray)
+        {
+            TSharedPtr<FJsonObject> CellObj = CellValue->AsObject();
+            if (!CellObj.IsValid()) continue;
+
+            FLayoutCell Cell;
+            Cell.RowIndex = CellObj->GetIntegerField(TEXT("rowIndex"));
+            Cell.ColIndex = CellObj->GetIntegerField(TEXT("colIndex"));
+            Cell.CellType = CellObj->GetStringField(TEXT("cellType"));
+
+            LayoutData.Cells.Add(Cell);
+        }
+    }
+
+    UE_LOG(LogTemp, Log, TEXT("[RobotManager] Parsed layout: '%s' (%dx%d, cellSize=%.1f, %d cells, status=%s)"),
+        *LayoutData.LayoutName, LayoutData.Rows, LayoutData.Cols, LayoutData.CellSize,
+        LayoutData.Cells.Num(), *LayoutData.Status);
+
+    // Apply to warehouse environment
+    if (WarehouseEnv)
+    {
+        WarehouseEnv->BuildFromLayout(LayoutData);
+
+        // Update charging stations from layout locations
+        ChargingStations.Empty();
+        TArray<FWarehouseLocation> ChargeLocations;
+        WarehouseEnv->GetLocationsByType(TEXT("CHARGING"), ChargeLocations);
+        for (const auto& Loc : ChargeLocations)
+        {
+            ChargingStations.Add(Loc.Position);
+        }
+
+        UE_LOG(LogTemp, Log, TEXT("[RobotManager] Layout applied! %d charging stations extracted"), ChargingStations.Num());
+
+        // Publish updated layout via NATS
+        if (NatsClient && NatsClient->IsConnected())
+        {
+            FString LayoutJson = WarehouseEnv->GetLayoutJson();
+            NatsClient->Publish(TEXT("smartlogistic.warehouse.layout"), LayoutJson);
+            UE_LOG(LogTemp, Log, TEXT("[RobotManager] Published dynamic layout to NATS"));
+        }
+    }
+    else
+    {
+        UE_LOG(LogTemp, Warning, TEXT("[RobotManager] No WarehouseEnv reference - layout parsed but not applied"));
     }
 }

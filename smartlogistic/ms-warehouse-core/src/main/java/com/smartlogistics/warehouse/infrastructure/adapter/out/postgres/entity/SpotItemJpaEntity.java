@@ -3,7 +3,7 @@ package com.smartlogistics.warehouse.infrastructure.adapter.out.postgres.entity;
 import jakarta.persistence.*;
 
 @Entity
-@Table(name = "spot_item", uniqueConstraints = @UniqueConstraint(columnNames = {"spot_id", "item_id"}))
+@Table(name = "spot_item")
 public class SpotItemJpaEntity {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -23,9 +23,11 @@ public class SpotItemJpaEntity {
 
     public Long getId() { return id; }
     public Long getSpotId() { return spotId; }
+    public void setSpotId(Long spotId) { this.spotId = spotId; }
     public Long getItemId() { return itemId; }
+    public void setItemId(Long itemId) { this.itemId = itemId; }
     public int getQuantityAvailable() { return quantityAvailable; }
-    public int getQuantityReserved() { return quantityReserved; }
     public void setQuantityAvailable(int quantityAvailable) { this.quantityAvailable = quantityAvailable; }
+    public int getQuantityReserved() { return quantityReserved; }
     public void setQuantityReserved(int quantityReserved) { this.quantityReserved = quantityReserved; }
 }
