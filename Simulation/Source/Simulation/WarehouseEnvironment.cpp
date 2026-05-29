@@ -590,6 +590,9 @@ void AWarehouseEnvironment::BuildFromLayout(const FWarehouseLayoutData& LayoutDa
 
     UE_LOG(LogTemp, Log, TEXT("[Warehouse] Dynamic layout built: %d components, %d locations"),
         ProceduralComponents.Num(), Locations.Num());
+
+    // Fetch spot inventory data from backend (maps spot codes to items)
+    FetchSpotsFromBackend();
 }
 
 void AWarehouseEnvironment::BuildDynamicFloor(int32 Rows, int32 Cols, float CellSz)
@@ -826,7 +829,7 @@ void AWarehouseEnvironment::BuildDynamicLocationMap(const FWarehouseLayoutData& 
 void AWarehouseEnvironment::FetchSpotsFromBackend()
 {
     TSharedRef<IHttpRequest, ESPMode::ThreadSafe> Request = FHttpModule::Get().CreateRequest();
-    Request->SetURL(TEXT("http://localhost:8081/api/spots"));
+    Request->SetURL(TEXT("http://localhost:8081/api/v1/warehouse/spots"));
     Request->SetVerb(TEXT("GET"));
     Request->SetHeader(TEXT("Content-Type"), TEXT("application/json"));
 
