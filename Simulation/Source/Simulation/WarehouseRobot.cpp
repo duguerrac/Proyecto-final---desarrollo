@@ -180,6 +180,15 @@ void AWarehouseRobot::Tick(float DeltaTime)
             CurrentData.Speed = 0.0f;
             UE_LOG(LogTemp, Log, TEXT("[Robot:%s] Arrived at %s"), *RobotId, *MoveTarget.ToString());
 
+            // Fire arrival delegate so RobotManager can handle mission completion
+            if (bOnMission)
+            {
+                UE_LOG(LogTemp, Log, TEXT("[Robot:%s] Mission arrival: type=%s, package=%lld, spot=%s"),
+                    *RobotId, *ActiveMission.MissionType, ActiveMission.PackageId, *ActiveMission.TargetSpotCode);
+
+                OnArrivalAtTarget.Broadcast(this, ActiveMission.MissionType);
+            }
+
             if (bIsCharging)
             {
                 CurrentData.OperationalMode = ERobotOperationalMode::CHARGING;
@@ -429,6 +438,22 @@ void AWarehouseRobot::UpdateOperationalMode()
 // ═══════════════════════════════════════════════════════════════════
 //  EXTERNAL UPDATE (from NATS events)
 // ═══════════════════════════════════════════════════════════════════
+
+void AWarehouseRobot::SetMission(const FRobotMissionData& Mission)
+{
+    ActiveMission = Mission;
+    bOnMission = true;
+    UE_LOG(LogTemp, Log, TEXT("[Robot:%s] Mission set: type=%s, packageId=%lld, spot=%s"),
+        *RobotId, *Mission.MissionType, Mission.PackageId, *Mission.TargetSpotCode);
+}
+
+void AWarehouseRobot::ClearMission()
+{
+    UE_LOG(LogTemp, Log, TEXT("[Robot:%s] Mission cleared (was type=%s, package=%lld)"),
+        *RobotId, *ActiveMission.MissionType, ActiveMission.PackageId);
+    ActiveMission = FRobotMissionData();
+    bOnMission = false;
+}
 
 void AWarehouseRobot::UpdateFromData(const FSmartLogisticRobotData& Data)
 {

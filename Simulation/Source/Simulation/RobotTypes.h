@@ -80,3 +80,44 @@ struct FSmartLogisticRobotData
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "SmartLogistics")
     FString EventTimestamp;
 };
+
+/**
+ * Mission data for a robot performing a warehouse task (e.g., STOCK_IN).
+ * Tracks package transport from reception spot to target storage spot.
+ */
+USTRUCT(BlueprintType)
+struct FRobotMissionData
+{
+    GENERATED_BODY()
+
+    /** Package ID being transported */
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "SmartLogistics|Mission")
+    int64 PackageId = 0;
+
+    /** Mission type (STOCK_IN, STOCK_OUT, etc.) */
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "SmartLogistics|Mission")
+    FString MissionType;
+
+    /** Spot code where the package should be picked up (reception) */
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "SmartLogistics|Mission")
+    FString ReceptionSpotCode;
+
+    /** Spot code where the package should be delivered */
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "SmartLogistics|Mission")
+    FString TargetSpotCode;
+
+    /** World position of the reception spot */
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "SmartLogistics|Mission")
+    FVector ReceptionSpotPosition = FVector::ZeroVector;
+
+    /** World position of the target spot */
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "SmartLogistics|Mission")
+    FVector TargetSpotPosition = FVector::ZeroVector;
+
+    /** Current phase of the mission: GO_TO_RECEPTION, GO_TO_TARGET, NONE */
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "SmartLogistics|Mission")
+    FString MissionPhase;
+
+    /** Whether this robot has an active mission */
+    bool IsActive() const { return PackageId > 0 && !MissionType.IsEmpty(); }
+};

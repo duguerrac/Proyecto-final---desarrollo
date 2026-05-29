@@ -91,6 +91,12 @@ void AWarehouseEnvironment::OnConstruction(const FTransform& Transform)
 {
     Super::OnConstruction(Transform);
 
+    // Skip if this is the CDO (Class Default Object) — not a real actor instance
+    if (!HasActorBegunPlay() && !GetWorld())
+    {
+        return;
+    }
+
     // Only build static layout if we are NOT using dynamic layout
     if (bUsingDynamicLayout)
     {
@@ -915,4 +921,86 @@ bool AWarehouseEnvironment::GetSpotByCode(const FString& Code, FSpotData& OutSpo
         return true;
     }
     return false;
+}
+
+bool AWarehouseEnvironment::GetSpotPosition(const FString& SpotCode, FVector& OutPosition) const
+{
+    // 1) Try named locations (RECEIVING-ZONE, DELIVERY-ZONE, ENTRY-xx, EXIT-xx, etc.)
+    for (const auto& Loc : Locations)
+    {
+        if (Loc.Name == SpotCode)
+        {
+            OutPosition = Loc.Position;
+            return true;
+        }
+    }
+
+    // 2) Try SpotMap (shelf spots like S-A1-01) — use the spot's x,y from the backend
+    const FSpotData* Spot = SpotMap.Find(SpotCode);
+    if (Spot)
+    {
+        OutPosition = GetActorLocation() + FVector(Spot->X, Spot->Y, 0.0f);
+        return true;
+    }
+
+    // 3) Fallback: try matching by Location Type (e.g., "RECEIVING" matches RECEIVING-ZONE)
+    for (const auto& Loc : Locations)
+    {
+        if (SpotCode.StartsWith(Loc.Type) || Loc.Type.StartsWith(SpotCode))
+        {
+            OutPosition = Loc.Position;
+            return true;
+        }
+    }
+
+    UE_LOG(LogTemp, Warning, TEXT("[Warehouse] GetSpotPosition: '%s' not found"), *SpotCode);
+    return false;
+}
+
+FVector AWarehouseEnvironment::GetDefaultSpawnPosition() const
+{
+    // 1. Try to find a DOCK, DELIVERY, or RECEIVING location
+    for (const auto& Loc : Locations)
+    {
+        if (Loc.Type.Contains(TEXT("DOCK")) ||
+            Loc.Type.Contains(TEXT("DELIVERY")) ||
+            Loc.Type.Contains(TEXT("RECEIVING")) ||
+            Loc.Type.Contains(TEXT("RECEPTION")))
+        {
+            UE_LOG(LogTemp, Log, TEXT("[Warehouse] Default spawn at %s location: %s"),
+                *Loc.Type, *Loc.Position.ToString());
+            return Loc.Position;
+        }
+    }
+
+    // 2. Try charging stations
+    for (const auto& Loc : Locations)
+    {
+        if (Loc.Type.Contains(TEXT("CHARGE")))
+        {
+            UE_LOG(LogTemp, Log, TEXT("[Warehouse] Default spawn at charging: %s"), *Loc.Position.ToString());
+            return Loc.Position;
+        }
+    }
+
+    // 3. First location in the array
+    if (Locations.Num() > 0)
+    {
+        UE_LOG(LogTemp, Log, TEXT("[Warehouse] Default spawn at first location: %s"),
+            *Locations[0].Position.ToString());
+        return Locations[0].Position;
+    }
+
+    // 4. Center of the warehouse
+    FVector Center = GetActorLocation();
+    if (bUsingDynamicLayout)
+    {
+        Center = CellToWorldPosition(CurrentLayout.Rows / 2, CurrentLayout.Cols / 2);
+    }
+    else
+    {
+        Center += FVector(WarehouseDepth / 2, WarehouseWidth / 2, 0);
+    }
+    UE_LOG(LogTemp, Log, TEXT("[Warehouse] Default spawn at warehouse center: %s"), *Center.ToString());
+    return Center;
 }

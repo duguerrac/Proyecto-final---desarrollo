@@ -55,4 +55,34 @@ public class RobotStatusService implements GetRobotStatusUseCase, UpdateBatteryU
         List<Robot> robots = robotCachePort.findAll();
         robotEventPort.publishStatusBatch(robots);
     }
+
+    /**
+     * Find the first available (assignable) robot and mark it as busy.
+     * Returns robotId or null if none available.
+     */
+    public String findAvailableRobot() {
+        return robotCachePort.findAll().stream()
+                .filter(Robot::isAssignable)
+                .findFirst()
+                .map(robot -> {
+                    robot.setAvailable(false);
+                    robot.setOperationalMode(RobotStatus.MOVING);
+                    robotCachePort.save(robot);
+                    robotEventPort.publishStatusUpdate(robot);
+                    return robot.getId();
+                })
+                .orElse(null);
+    }
+
+    /**
+     * Mark a robot as available again after completing a mission.
+     */
+    public void markRobotAvailable(String robotId) {
+        robotCachePort.findById(robotId).ifPresent(robot -> {
+            robot.setAvailable(true);
+            robot.setOperationalMode(RobotStatus.IDLE);
+            robotCachePort.save(robot);
+            robotEventPort.publishStatusUpdate(robot);
+        });
+    }
 }

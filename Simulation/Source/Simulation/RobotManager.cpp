@@ -27,31 +27,59 @@ void ARobotManager::BeginPlay()
     UE_LOG(LogTemp, Log, TEXT("[RobotManager] Starting SmartLogistics simulation..."));
     UE_LOG(LogTemp, Log, TEXT("[RobotManager] NATS URL: %s | MaxRobots: %d"), *NatsUrl, MaxRobots);
 
+    // Auto-find WarehouseEnvironment in the level if not manually set
+    if (!WarehouseEnv)
+    {
+        TArray<AActor*> FoundActors;
+        UGameplayStatics::GetAllActorsOfClass(GetWorld(), AWarehouseEnvironment::StaticClass(), FoundActors);
+        if (FoundActors.Num() > 0)
+        {
+            WarehouseEnv = Cast<AWarehouseEnvironment>(FoundActors[0]);
+            UE_LOG(LogTemp, Log, TEXT("[RobotManager] Auto-found WarehouseEnvironment: %s"),
+                WarehouseEnv ? *WarehouseEnv->GetName() : TEXT("NULL"));
+        }
+        else
+        {
+            UE_LOG(LogTemp, Warning, TEXT("[RobotManager] No WarehouseEnvironment actor found in level!"));
+        }
+    }
+
     ConnectToNats();
 
-    // Try to fetch dynamic layout from warehouse-core API after a short delay.
-    // Falls back to the static WarehouseEnvironment if the API is unavailable.
-    FTimerHandle LayoutTimerHandle;
-    GetWorldTimerManager().SetTimer(LayoutTimerHandle, [this]()
+    // Wait for WarehouseEnvironment to finish its own layout fetch (it does this in BeginPlay),
+    // then extract charging stations and publish layout via NATS.
+    FTimerHandle PostLayoutTimerHandle;
+    GetWorldTimerManager().SetTimer(PostLayoutTimerHandle, [this]()
     {
-        UE_LOG(LogTemp, Log, TEXT("[RobotManager] Attempting to fetch layout from warehouse-core API..."));
-        FetchAndApplyWarehouseLayout();
-
-        // Also publish static layout as fallback after a delay
-        FTimerHandle FallbackTimerHandle;
-        GetWorldTimerManager().SetTimer(FallbackTimerHandle, [this]()
+        if (WarehouseEnv)
         {
-            if (WarehouseEnv && !WarehouseEnv->bUsingDynamicLayout)
+            // Extract charging stations from whatever layout was built (dynamic or static)
+            ChargingStations.Empty();
+            TArray<FWarehouseLocation> ChargeLocations;
+            WarehouseEnv->GetLocationsByType(TEXT("CHARGING"), ChargeLocations);
+            for (const auto& Loc : ChargeLocations)
             {
-                UE_LOG(LogTemp, Log, TEXT("[RobotManager] No dynamic layout received, using static environment"));
-                if (NatsClient && NatsClient->IsConnected())
-                {
-                    FString LayoutJson = WarehouseEnv->GetLayoutJson();
-                    NatsClient->Publish(TEXT("smartlogistic.warehouse.layout"), LayoutJson);
-                }
+                ChargingStations.Add(Loc.Position);
             }
-        }, 5.0f, false);
-    }, 3.0f, false);
+
+            UE_LOG(LogTemp, Log, TEXT("[RobotManager] WarehouseEnv ready. Dynamic=%s, %d locations, %d charging stations"),
+                WarehouseEnv->bUsingDynamicLayout ? TEXT("true") : TEXT("false"),
+                WarehouseEnv->Locations.Num(),
+                ChargingStations.Num());
+
+            // Publish layout via NATS
+            if (NatsClient && NatsClient->IsConnected())
+            {
+                FString LayoutJson = WarehouseEnv->GetLayoutJson();
+                NatsClient->Publish(TEXT("smartlogistic.warehouse.layout"), LayoutJson);
+                UE_LOG(LogTemp, Log, TEXT("[RobotManager] Published layout to NATS"));
+            }
+        }
+        else
+        {
+            UE_LOG(LogTemp, Warning, TEXT("[RobotManager] Still no WarehouseEnv after delay!"));
+        }
+    }, 5.0f, false);
 }
 
 void ARobotManager::EndPlay(const EEndPlayReason::Type EndPlayReason)
@@ -90,6 +118,7 @@ void ARobotManager::ConnectToNats()
     {
         NatsClient->OnRobotStatusReceived.AddDynamic(this, &ARobotManager::HandleRobotStatusEvent);
         NatsClient->OnRobotCommandReceived.AddDynamic(this, &ARobotManager::HandleRobotCommand);
+        NatsClient->OnPackageMissionReceived.AddDynamic(this, &ARobotManager::HandleMissionCommand);
         NatsClient->Connect(NatsUrl);
         bIsNatsConnected = true;
         UE_LOG(LogTemp, Log, TEXT("[RobotManager] NATS client created and connecting..."));
@@ -151,8 +180,40 @@ AWarehouseRobot* ARobotManager::FindOrCreateRobot(const FSmartLogisticRobotData&
     if (!World) return nullptr;
 
     int32 SlotIndex = RobotCounter++;
-    FVector SpawnPos = GetSlotPosition(SlotIndex);
+    FVector SpawnPos;
     FRotator SpawnRot = FRotator::ZeroRotator;
+
+    // Try to spawn the robot inside the warehouse at its current location
+    if (WarehouseEnv)
+    {
+        bool bPositionFound = false;
+
+        // 1. Try resolving the robot's currentLocation to a world position
+        if (!Data.CurrentLocation.IsEmpty())
+        {
+            FVector ResolvedPos;
+            if (WarehouseEnv->GetSpotPosition(Data.CurrentLocation, ResolvedPos))
+            {
+                SpawnPos = ResolvedPos;
+                bPositionFound = true;
+                UE_LOG(LogTemp, Log, TEXT("[RobotManager] Robot '%s' spawned at currentLocation '%s' -> %s"),
+                    *Data.RobotId, *Data.CurrentLocation, *SpawnPos.ToString());
+            }
+        }
+
+        // 2. Fall back to default warehouse spawn position
+        if (!bPositionFound)
+        {
+            SpawnPos = WarehouseEnv->GetDefaultSpawnPosition();
+            UE_LOG(LogTemp, Log, TEXT("[RobotManager] Robot '%s' spawned at default warehouse position: %s"),
+                *Data.RobotId, *SpawnPos.ToString());
+        }
+    }
+    else
+    {
+        // No warehouse environment — use grid slot positioning
+        SpawnPos = GetSlotPosition(SlotIndex);
+    }
 
     FActorSpawnParameters SpawnParams;
     SpawnParams.Name = *FString::Printf(TEXT("Robot_%s"), *Data.RobotId);
@@ -164,6 +225,7 @@ AWarehouseRobot* ARobotManager::FindOrCreateRobot(const FSmartLogisticRobotData&
     if (NewRobot)
     {
         NewRobot->RobotId = Data.RobotId;
+        NewRobot->OnArrivalAtTarget.AddDynamic(this, &ARobotManager::HandleRobotArrival);
         RobotActors.Add(Data.RobotId, NewRobot);
         ActiveRobotCount = RobotActors.Num();
 
@@ -468,4 +530,128 @@ void ARobotManager::ApplyWarehouseLayoutFromJson(const FString& JsonString)
     {
         UE_LOG(LogTemp, Warning, TEXT("[RobotManager] No WarehouseEnv reference - layout parsed but not applied"));
     }
+}
+
+// ─── Mission Handling ────────────────────────────────────────────
+
+void ARobotManager::HandleMissionCommand(const FString& InRobotId, int64 InPackageId, const FString& InMissionType,
+    const FString& InReceptionSpotCode, const FString& InTargetSpotCode, const FString& InItemSku, int32 InQuantity)
+{
+    UE_LOG(LogTemp, Log, TEXT("[RobotManager] Mission command: robot=%s, type=%s, package=%lld, spot=%s, item=%s, qty=%d"),
+        *InRobotId, *InMissionType, InPackageId, *InTargetSpotCode, *InItemSku, InQuantity);
+
+    // Find the robot
+    AWarehouseRobot** Found = RobotActors.Find(InRobotId);
+    if (!Found || !*Found)
+    {
+        UE_LOG(LogTemp, Warning, TEXT("[RobotManager] Robot '%s' not found for mission"), *InRobotId);
+        return;
+    }
+
+    AWarehouseRobot* Robot = *Found;
+
+    // Look up spot positions from environment
+    if (!WarehouseEnv)
+    {
+        UE_LOG(LogTemp, Error, TEXT("[RobotManager] No WarehouseEnv - cannot resolve spots"));
+        return;
+    }
+
+    FVector ReceptionPos = FVector::ZeroVector;
+    WarehouseEnv->GetSpotPosition(InReceptionSpotCode, ReceptionPos);
+
+    FVector TargetPos = FVector::ZeroVector;
+    if (!WarehouseEnv->GetSpotPosition(InTargetSpotCode, TargetPos))
+    {
+        UE_LOG(LogTemp, Warning, TEXT("[RobotManager] Target spot '%s' not found in environment"), *InTargetSpotCode);
+    }
+
+    // Build mission data from parameters
+    FRobotMissionData Mission;
+    Mission.PackageId = InPackageId;
+    Mission.MissionType = InMissionType;
+    Mission.ReceptionSpotCode = InReceptionSpotCode;
+    Mission.TargetSpotCode = InTargetSpotCode;
+    Mission.ReceptionSpotPosition = ReceptionPos;
+    Mission.TargetSpotPosition = TargetPos;
+    Mission.MissionPhase = TEXT("GO_TO_RECEPTION");
+
+    // Set mission on robot
+    Robot->SetMission(Mission);
+
+    // For STOCK_IN: first go to reception to pick up, then to target
+    if (InMissionType == TEXT("STOCK_IN"))
+    {
+        Robot->MoveTo(ReceptionPos);
+        UE_LOG(LogTemp, Log, TEXT("[RobotManager] Robot '%s' dispatched to RECEPTION '%s' at %s"),
+            *InRobotId, *InReceptionSpotCode, *ReceptionPos.ToString());
+    }
+    else
+    {
+        Robot->MoveTo(TargetPos);
+        UE_LOG(LogTemp, Log, TEXT("[RobotManager] Robot '%s' dispatched to TARGET '%s' at %s"),
+            *InRobotId, *InTargetSpotCode, *TargetPos.ToString());
+    }
+}
+
+void ARobotManager::HandleRobotArrival(AWarehouseRobot* Robot, const FString& MissionType)
+{
+    if (!Robot) return;
+
+    const FRobotMissionData& Mission = Robot->ActiveMission;
+
+    UE_LOG(LogTemp, Log, TEXT("[RobotManager] Robot '%s' arrived for mission type=%s, package=%lld, spot=%s, phase=%s"),
+        *Robot->RobotId, *MissionType, Mission.PackageId, *Mission.TargetSpotCode, *Mission.MissionPhase);
+
+    // Handle multi-phase missions (STOCK_IN: go to reception first, then to target)
+    if (MissionType == TEXT("STOCK_IN") && Mission.MissionPhase == TEXT("GO_TO_RECEPTION"))
+    {
+        // Arrived at reception - pick up item, then head to target storage spot
+        Robot->PickUpItem();
+        Robot->ActiveMission.MissionPhase = TEXT("GO_TO_TARGET");
+        Robot->MoveTo(Mission.TargetSpotPosition);
+        UE_LOG(LogTemp, Log, TEXT("[RobotManager] Robot '%s' picked up at reception, heading to target '%s'"),
+            *Robot->RobotId, *Mission.TargetSpotCode);
+        return; // Don't clear mission yet
+    }
+
+    if (MissionType == TEXT("STOCK_IN") || MissionType == TEXT("STOCK_OUT"))
+    {
+        // Arrived at final destination - drop off items
+        Robot->DropOffItems();
+    }
+
+    // Publish completion event
+    PublishMissionEvent(TEXT("MISSION_COMPLETED"), Robot->RobotId,
+        Mission.PackageId, Mission.TargetSpotCode, Mission.MissionType);
+
+    // Clear the mission
+    Robot->ClearMission();
+}
+
+void ARobotManager::PublishMissionEvent(const FString& EventType, const FString& RobotId,
+    int64 PackageId, const FString& SpotCode, const FString& MissionType)
+{
+    if (!NatsClient || !NatsClient->IsConnected()) return;
+
+    FString Json = FString::Printf(
+        TEXT("{\"event\":\"%s\","
+             "\"timestamp\":\"%s\","
+             "\"source\":\"ue5-simulation\","
+             "\"robotId\":\"%s\","
+             "\"packageId\":%lld,"
+             "\"spotCode\":\"%s\","
+             "\"missionType\":\"%s\"}"),
+        *EventType,
+        *FDateTime::UtcNow().ToIso8601(),
+        *RobotId,
+        PackageId,
+        *SpotCode,
+        *MissionType
+    );
+
+    NatsClient->Publish(TEXT("smartlogistic.mission.completed"), Json);
+
+    UE_LOG(LogTemp, Log, TEXT("[RobotManager] Published mission event: %s for robot=%s, package=%lld"),
+        *EventType, *RobotId, PackageId);
 }

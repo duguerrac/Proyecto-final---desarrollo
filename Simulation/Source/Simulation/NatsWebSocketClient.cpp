@@ -235,8 +235,30 @@ void UNatsWebSocketClient::ProcessLine(const FString& Line)
                 if (JsonObject->HasField(TEXT("targetLocation")))
                     TargetLoc = JsonObject->GetStringField(TEXT("targetLocation"));
 
-                OnRobotCommandReceived.Broadcast(RobotId, CmdType, TargetLoc);
-                UE_LOG(LogTemp, Log, TEXT("[NATS-TCP] Command: %s -> %s (%s)"), *RobotId, *CmdType, *TargetLoc);
+                // Check for mission fields (STOCK_IN package transport)
+                if (JsonObject->HasField(TEXT("mission")) && JsonObject->HasField(TEXT("packageId")))
+                {
+                    FString Mission = JsonObject->GetStringField(TEXT("mission"));
+                    int64 PackageId = (int64)JsonObject->GetNumberField(TEXT("packageId"));
+                    FString ReceptionSpot = JsonObject->GetStringField(TEXT("receptionSpotCode"));
+                    FString TargetSpot = JsonObject->GetStringField(TEXT("targetSpotCode"));
+                    FString ItemSku;
+                    int32 Quantity = 0;
+                    if (JsonObject->HasField(TEXT("itemSku")))
+                        ItemSku = JsonObject->GetStringField(TEXT("itemSku"));
+                    if (JsonObject->HasField(TEXT("quantity")))
+                        Quantity = JsonObject->GetIntegerField(TEXT("quantity"));
+
+                    OnPackageMissionReceived.Broadcast(RobotId, PackageId, Mission,
+                        ReceptionSpot, TargetSpot, ItemSku, Quantity);
+                    UE_LOG(LogTemp, Log, TEXT("[NATS-TCP] PackageMission: %s -> pkg=%lld mission=%s from=%s to=%s"),
+                        *RobotId, PackageId, *Mission, *ReceptionSpot, *TargetSpot);
+                }
+                else
+                {
+                    OnRobotCommandReceived.Broadcast(RobotId, CmdType, TargetLoc);
+                    UE_LOG(LogTemp, Log, TEXT("[NATS-TCP] Command: %s -> %s (%s)"), *RobotId, *CmdType, *TargetLoc);
+                }
             }
             else
             {

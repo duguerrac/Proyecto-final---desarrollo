@@ -144,6 +144,19 @@ private:
     UFUNCTION()
     void HandleRobotCommand(const FString& RobotId, const FString& CommandType, const FString& TargetLocation);
 
+    /** Handle incoming NATS command with mission data (STOCK_IN, STOCK_OUT, etc). */
+    UFUNCTION()
+    void HandleMissionCommand(const FString& RobotId, int64 PackageId, const FString& MissionType,
+        const FString& ReceptionSpotCode, const FString& TargetSpotCode, const FString& ItemSku, int32 Quantity);
+
+    /** Handle robot arrival at mission target. */
+    UFUNCTION()
+    void HandleRobotArrival(AWarehouseRobot* Robot, const FString& MissionType);
+
+    /** Publish a mission completion event to NATS. */
+    void PublishMissionEvent(const FString& EventType, const FString& RobotId,
+        int64 PackageId, const FString& SpotCode, const FString& MissionType);
+
     /** Find or create a robot actor for the given ID. */
     AWarehouseRobot* FindOrCreateRobot(const FSmartLogisticRobotData& Data);
 

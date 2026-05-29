@@ -10,6 +10,9 @@
 #include "RobotTypes.h"
 #include "WarehouseRobot.generated.h"
 
+/** Delegate fired when the robot arrives at its movement target */
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnArrivalAtTarget, AWarehouseRobot*, Robot, const FString&, MissionType);
+
 /**
  * Autonomous warehouse robot with battery simulation.
  * - Drains battery based on distance traveled
@@ -83,6 +86,26 @@ public:
     /** Robot ID */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SmartLogistics|Robot")
     FString RobotId;
+
+    // ─── Mission State ──────────────────────────────────────────
+
+    /** Fired when robot arrives at its MoveTo target */
+    UPROPERTY(BlueprintAssignable, Category = "SmartLogistics|Mission")
+    FOnArrivalAtTarget OnArrivalAtTarget;
+
+    /** Current active mission data (empty if idle) */
+    FRobotMissionData ActiveMission;
+
+    /** Whether the robot is on an active mission */
+    bool bOnMission = false;
+
+    /** Set mission for this robot */
+    UFUNCTION(BlueprintCallable, Category = "SmartLogistics|Mission")
+    void SetMission(const FRobotMissionData& Mission);
+
+    /** Clear mission state */
+    UFUNCTION(BlueprintCallable, Category = "SmartLogistics|Mission")
+    void ClearMission();
 
     // ─── Visual Components ──────────────────────────────────────
 

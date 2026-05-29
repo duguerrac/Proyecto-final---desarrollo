@@ -272,6 +272,21 @@ public:
     /** Get spot data by code */
     bool GetSpotByCode(const FString& Code, FSpotData& OutSpot) const;
 
+    /**
+     * Get the UE world position for a spot or named location by its code.
+     * Checks Locations array first (by Name), then SpotMap (by Code).
+     * Returns true if found.
+     */
+    UFUNCTION(BlueprintCallable, Category = "SmartLogistics")
+    bool GetSpotPosition(const FString& SpotCode, FVector& OutPosition) const;
+
+    /**
+     * Get a default spawn position inside the warehouse.
+     * Tries: first DOCK/DELIVERY/RECEIVING location → center of warehouse.
+     */
+    UFUNCTION(BlueprintCallable, Category = "SmartLogistics")
+    FVector GetDefaultSpawnPosition() const;
+
 private:
     UPROPERTY()
     TArray<UStaticMeshComponent*> ProceduralComponents;
