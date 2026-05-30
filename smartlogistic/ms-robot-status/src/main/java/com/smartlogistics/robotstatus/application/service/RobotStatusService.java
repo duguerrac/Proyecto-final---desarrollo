@@ -1,10 +1,13 @@
 package com.smartlogistics.robotstatus.application.service;
 
+import com.smartlogistics.robotstatus.application.port.in.DispatchRobotUseCase;
 import com.smartlogistics.robotstatus.application.port.in.GetRobotStatusUseCase;
+import com.smartlogistics.robotstatus.application.port.in.PublishSnapshotUseCase;
 import com.smartlogistics.robotstatus.application.port.in.UpdateBatteryUseCase;
 import com.smartlogistics.robotstatus.application.port.out.RobotCachePort;
 import com.smartlogistics.robotstatus.application.port.out.RobotEventPort;
 import com.smartlogistics.robotstatus.domain.model.Robot;
+import com.smartlogistics.robotstatus.domain.model.RobotStatus;
 
 import java.util.List;
 import java.util.Optional;
@@ -13,7 +16,9 @@ import java.util.Optional;
  * Application service that orchestrates robot status use cases.
  * Pure Java — zero framework imports. Depends only on ports.
  */
-public class RobotStatusService implements GetRobotStatusUseCase, UpdateBatteryUseCase {
+public class RobotStatusService
+        implements GetRobotStatusUseCase, UpdateBatteryUseCase,
+        DispatchRobotUseCase, PublishSnapshotUseCase {
 
     private final RobotCachePort robotCachePort;
     private final RobotEventPort robotEventPort;
@@ -47,19 +52,13 @@ public class RobotStatusService implements GetRobotStatusUseCase, UpdateBatteryU
         return saved;
     }
 
-    /**
-     * Publish a snapshot of all robots to NATS.
-     * Called by the infrastructure layer (e.g., scheduled task or after seed).
-     */
+    @Override
     public void publishBatchSnapshot() {
         List<Robot> robots = robotCachePort.findAll();
         robotEventPort.publishStatusBatch(robots);
     }
 
-    /**
-     * Find the first available (assignable) robot and mark it as busy.
-     * Returns robotId or null if none available.
-     */
+    @Override
     public String findAvailableRobot() {
         return robotCachePort.findAll().stream()
                 .filter(Robot::isAssignable)
@@ -74,9 +73,7 @@ public class RobotStatusService implements GetRobotStatusUseCase, UpdateBatteryU
                 .orElse(null);
     }
 
-    /**
-     * Mark a robot as available again after completing a mission.
-     */
+    @Override
     public void markRobotAvailable(String robotId) {
         robotCachePort.findById(robotId).ifPresent(robot -> {
             robot.setAvailable(true);

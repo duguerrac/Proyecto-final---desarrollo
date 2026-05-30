@@ -185,6 +185,27 @@ void AWarehouseRobot::Tick(float DeltaTime)
             CurrentData.Speed = 0.0f;
             UE_LOG(LogTemp, Log, TEXT("[Robot:%s] Arrived at %s"), *RobotId, *MoveTarget.ToString());
 
+            // ─── Waypoint chaining ──────────────────────────────
+            if (bFollowingWaypoints)
+            {
+                CurrentWaypointIndex++;
+                if (CurrentWaypointIndex < Waypoints.Num())
+                {
+                    // Advance to next waypoint
+                    UE_LOG(LogTemp, Log, TEXT("[Robot:%s] Waypoint %d/%d reached, advancing to next"),
+                        *RobotId, CurrentWaypointIndex, Waypoints.Num());
+                    MoveTo(Waypoints[CurrentWaypointIndex]);
+                    return; // Skip arrival delegate, still navigating
+                }
+                else
+                {
+                    // All waypoints completed
+                    bFollowingWaypoints = false;
+                    UE_LOG(LogTemp, Log, TEXT("[Robot:%s] All %d waypoints completed"),
+                        *RobotId, Waypoints.Num());
+                }
+            }
+
             // Fire arrival delegate so RobotManager can handle mission completion
             if (bOnMission)
             {
@@ -293,6 +314,24 @@ void AWarehouseRobot::GoCharge(const FVector& StationLocation)
 
     UE_LOG(LogTemp, Log, TEXT("[Robot:%s] Going to charge at %s (Bat: %.1f%%)"),
         *RobotId, *StationLocation.ToString(), InternalBattery);
+}
+
+void AWarehouseRobot::FollowWaypoints(const TArray<FVector>& InWaypoints)
+{
+    if (InWaypoints.Num() == 0)
+    {
+        UE_LOG(LogTemp, Warning, TEXT("[Robot:%s] FollowWaypoints called with empty array"), *RobotId);
+        return;
+    }
+
+    Waypoints = InWaypoints;
+    CurrentWaypointIndex = 0;
+    bFollowingWaypoints = true;
+
+    // Start moving to first waypoint
+    MoveTo(Waypoints[0]);
+    UE_LOG(LogTemp, Log, TEXT("[Robot:%s] Following %d waypoints, starting with index 0"),
+        *RobotId, Waypoints.Num());
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -470,6 +509,12 @@ void AWarehouseRobot::UpdateFromData(const FSmartLogisticRobotData& Data)
     {
         CurrentData.BatteryLevel = Data.BatteryLevel;
         InternalBattery = Data.BatteryLevel;
+    }
+
+    // Sync location code from backend data
+    if (!Data.CurrentLocation.IsEmpty())
+    {
+        CurrentLocationCode = Data.CurrentLocation;
     }
 
     UpdateTextDisplays();

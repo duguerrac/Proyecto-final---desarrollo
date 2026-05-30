@@ -287,6 +287,45 @@ public:
     UFUNCTION(BlueprintCallable, Category = "SmartLogistics")
     FVector GetDefaultSpawnPosition() const;
 
+    /**
+     * Convert a root point code (e.g. "RP-R02-C03") to UE world position.
+     * Parses row/col from the code and uses CellToWorldPosition.
+     * Returns true if the code was parsed successfully.
+     */
+    UFUNCTION(BlueprintCallable, Category = "SmartLogistics")
+    bool RootPointCodeToPosition(const FString& Code, FVector& OutPosition) const;
+
+    /**
+     * Convert an array of root point codes to UE world positions.
+     * Returns false if any code fails to parse.
+     */
+    UFUNCTION(BlueprintCallable, Category = "SmartLogistics")
+    bool RootPointCodesToPositions(const TArray<FString>& Codes, TArray<FVector>& OutPositions) const;
+
+    /**
+     * Find the nearest root point code for a given world position.
+     * Reverses CellToWorldPosition: converts world X,Y back to row,col,
+     * then formats as "RP-Rxx-Cyy". Clamps to valid layout bounds.
+     * Returns empty string if no dynamic layout is available.
+     */
+    UFUNCTION(BlueprintCallable, Category = "SmartLogistics")
+    FString FindNearestRootPointCode(const FVector& WorldPosition) const;
+
+    /**
+     * Spawn a box visual at a spot to represent a package waiting for pickup.
+     * Box is placed on top of the spot location with the SKU label color.
+     * Returns the spawned component (or nullptr if spot not found).
+     */
+    UFUNCTION(BlueprintCallable, Category = "SmartLogistics")
+    UStaticMeshComponent* SpawnItemVisualAtSpot(const FString& SpotCode, int64 PackageId,
+        const FString& Sku, int32 Quantity);
+
+    /**
+     * Remove a package visual by PackageId.
+     */
+    UFUNCTION(BlueprintCallable, Category = "SmartLogistics")
+    void RemoveItemVisual(int64 PackageId);
+
 private:
     UPROPERTY()
     TArray<UStaticMeshComponent*> ProceduralComponents;
@@ -294,6 +333,10 @@ private:
     /** Cached cube mesh for procedural boxes */
     UPROPERTY()
     UStaticMesh* DefaultCubeMesh = nullptr;
+
+    /** Tracked package visuals by PackageId (for removal after pickup) */
+    UPROPERTY()
+    TMap<int64, UStaticMeshComponent*> PackageVisuals;
 
     void ClearProceduralComponents();
     UStaticMeshComponent* AddBox(const FString& Name, FVector Location, FVector Scale, FLinearColor Color, FRotator Rotation = FRotator::ZeroRotator);

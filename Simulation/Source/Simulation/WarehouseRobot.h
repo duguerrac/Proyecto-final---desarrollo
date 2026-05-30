@@ -83,9 +83,25 @@ public:
     UFUNCTION(BlueprintPure, Category = "SmartLogistics|Robot")
     bool IsMoving() const { return bIsMoving; }
 
+    /** Get current battery level as float (0-100) */
+    UFUNCTION(BlueprintPure, Category = "SmartLogistics|Robot")
+    float GetBatteryLevel() const { return InternalBattery; }
+
+    /** Follow a sequence of waypoints in order */
+    UFUNCTION(BlueprintCallable, Category = "SmartLogistics|Robot")
+    void FollowWaypoints(const TArray<FVector>& InWaypoints);
+
+    /** Get remaining waypoint count */
+    UFUNCTION(BlueprintPure, Category = "SmartLogistics|Robot")
+    int32 GetRemainingWaypoints() const { return Waypoints.Num() - CurrentWaypointIndex; }
+
     /** Robot ID */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SmartLogistics|Robot")
     FString RobotId;
+
+    /** Current location as root-point code (e.g. "RP-R01-C02"), synced with backend */
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "SmartLogistics|Robot")
+    FString CurrentLocationCode;
 
     // ─── Mission State ──────────────────────────────────────────
 
@@ -142,6 +158,11 @@ private:
     /** Movement target */
     bool bIsMoving = false;
     FVector MoveTarget = FVector::ZeroVector;
+
+    /** Waypoint navigation */
+    TArray<FVector> Waypoints;
+    int32 CurrentWaypointIndex = 0;
+    bool bFollowingWaypoints = false;
 
     /** Charging state */
     bool bIsCharging = false;

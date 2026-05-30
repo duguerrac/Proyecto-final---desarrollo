@@ -928,6 +928,26 @@ bool AWarehouseEnvironment::GetSpotByCode(const FString& Code, FSpotData& OutSpo
 
 bool AWarehouseEnvironment::GetSpotPosition(const FString& SpotCode, FVector& OutPosition) const
 {
+    // 0) Root point codes: RP-Rxx-Cyy → parse row/col and use CellToWorldPosition
+    //    This is the primary resolution for route waypoints from the backend
+    if (SpotCode.StartsWith(TEXT("RP-R")))
+    {
+        // Parse "RP-R02-C01" → Row=2, Col=1
+        FString Code = SpotCode.RightChop(4); // "02-C01"
+        int32 DashIdx;
+        if (Code.FindChar('-', DashIdx))
+        {
+            FString RowStr = Code.Left(DashIdx);      // "02"
+            FString ColStr = Code.RightChop(DashIdx + 2); // "01" (skip "-C")
+            int32 Row = FCString::Atoi(*RowStr);
+            int32 Col = FCString::Atoi(*ColStr);
+            OutPosition = CellToWorldPosition(Row, Col);
+            UE_LOG(LogTemp, Log, TEXT("[Warehouse] GetSpotPosition: Root point '%s' → Row=%d Col=%d → %s"),
+                *SpotCode, Row, Col, *OutPosition.ToString());
+            return true;
+        }
+    }
+
     // 1) Try named locations (RECEIVING-ZONE, DELIVERY-ZONE, ENTRY-xx, EXIT-xx, etc.)
     for (const auto& Loc : Locations)
     {
@@ -938,15 +958,48 @@ bool AWarehouseEnvironment::GetSpotPosition(const FString& SpotCode, FVector& Ou
         }
     }
 
-    // 2) Try SpotMap (shelf spots like S-A1-01) — use the spot's x,y from the backend
+    // 2) Try SpotMap (shelf spots like SP-A1-01) — transform backend coords to UE5
+    //    Backend: x = col*cellSize, y = row*cellSize (corner-based, x→Y axis, y→X axis)
+    //    UE5:     X = (row+0.5)*cellSize, Y = (col+0.5)*cellSize (center-based)
+    //    Transform: UE5_X = backend_y + cellSize/2, UE5_Y = backend_x + cellSize/2
     const FSpotData* Spot = SpotMap.Find(SpotCode);
     if (Spot)
     {
-        OutPosition = GetActorLocation() + FVector(Spot->X, Spot->Y, 0.0f);
+        float CellSz = GetCellSize();
+        float UE5_X = Spot->Y + CellSz / 2.0f;
+        float UE5_Y = Spot->X + CellSz / 2.0f;
+        OutPosition = GetActorLocation() + FVector(UE5_X, UE5_Y, 0.0f);
+        UE_LOG(LogTemp, Log, TEXT("[Warehouse] GetSpotPosition: Spot '%s' backend(%.0f,%.0f) → UE5(%.0f,%.0f)"),
+            *SpotCode, Spot->X, Spot->Y, UE5_X, UE5_Y);
         return true;
     }
 
-    // 3) Fallback: try matching by Location Type (e.g., "RECEIVING" matches RECEIVING-ZONE)
+    // 3) Fuzzy matching: map common backend codes to location types/names
+    //    RECV-xx → ORDER_ENTRY,  DELIV-xx/SHIP-xx → ORDER_EXIT
+    FString UpperCode = SpotCode.ToUpper();
+    FString MatchType;
+    if (UpperCode.StartsWith(TEXT("RECV")) || UpperCode.StartsWith(TEXT("RECEP")))
+        MatchType = TEXT("ORDER_ENTRY");
+    else if (UpperCode.StartsWith(TEXT("DELIV")) || UpperCode.StartsWith(TEXT("SHIP")) || UpperCode.StartsWith(TEXT("DISP")))
+        MatchType = TEXT("ORDER_EXIT");
+    else if (UpperCode.StartsWith(TEXT("CHARGE")) || UpperCode.StartsWith(TEXT("DOCK")))
+        MatchType = TEXT("CHARGING");
+
+    if (!MatchType.IsEmpty())
+    {
+        for (const auto& Loc : Locations)
+        {
+            if (Loc.Type == MatchType)
+            {
+                OutPosition = Loc.Position;
+                UE_LOG(LogTemp, Log, TEXT("[Warehouse] GetSpotPosition: '%s' matched %s location '%s'"),
+                    *SpotCode, *MatchType, *Loc.Name);
+                return true;
+            }
+        }
+    }
+
+    // 4) Last resort: try matching by Location Type prefix
     for (const auto& Loc : Locations)
     {
         if (SpotCode.StartsWith(Loc.Type) || Loc.Type.StartsWith(SpotCode))
@@ -956,7 +1009,8 @@ bool AWarehouseEnvironment::GetSpotPosition(const FString& SpotCode, FVector& Ou
         }
     }
 
-    UE_LOG(LogTemp, Warning, TEXT("[Warehouse] GetSpotPosition: '%s' not found"), *SpotCode);
+    UE_LOG(LogTemp, Warning, TEXT("[Warehouse] GetSpotPosition: '%s' not found (tried %d locations, %d spots)"),
+        *SpotCode, Locations.Num(), SpotMap.Num());
     return false;
 }
 
@@ -1006,4 +1060,122 @@ FVector AWarehouseEnvironment::GetDefaultSpawnPosition() const
     }
     UE_LOG(LogTemp, Log, TEXT("[Warehouse] Default spawn at warehouse center: %s"), *Center.ToString());
     return Center;
+}
+
+UStaticMeshComponent* AWarehouseEnvironment::SpawnItemVisualAtSpot(const FString& SpotCode, int64 PackageId,
+    const FString& Sku, int32 Quantity)
+{
+    FVector SpotPos;
+    if (!GetSpotPosition(SpotCode, SpotPos))
+    {
+        UE_LOG(LogTemp, Warning, TEXT("[Warehouse] Cannot spawn item visual - spot '%s' not found"), *SpotCode);
+        return nullptr;
+    }
+
+    // Stack box on top of existing items
+    int32 StackIndex = PackageVisuals.Num();
+    float BoxHeight = 50.0f;
+    FVector BoxLocation = SpotPos + FVector(0, 0, BoxHeight + StackIndex * (BoxHeight * 2));
+
+    FString BoxName = FString::Printf(TEXT("PkgBox_%lld_%s"), PackageId, *Sku);
+    FLinearColor BoxColor = FLinearColor(0.85f, 0.7f, 0.1f); // Gold/amber for packages
+
+    UStaticMeshComponent* BoxComp = AddBox(*BoxName, BoxLocation, FVector(0.3f, 0.3f, 0.3f), BoxColor);
+
+    if (BoxComp)
+    {
+        PackageVisuals.Add(PackageId, BoxComp);
+        UE_LOG(LogTemp, Log, TEXT("[Warehouse] Spawned package visual at spot '%s': pkg=%lld sku=%s qty=%d pos=%s"),
+            *SpotCode, PackageId, *Sku, Quantity, *BoxLocation.ToString());
+    }
+
+    return BoxComp;
+}
+
+void AWarehouseEnvironment::RemoveItemVisual(int64 PackageId)
+{
+    UStaticMeshComponent** Found = PackageVisuals.Find(PackageId);
+    if (Found && *Found)
+    {
+        (*Found)->DestroyComponent();
+        PackageVisuals.Remove(PackageId);
+        UE_LOG(LogTemp, Log, TEXT("[Warehouse] Removed package visual for pkg=%lld"), PackageId);
+    }
+}
+
+// ─── Root Point Code → Position Mapping ──────────────────────────
+
+bool AWarehouseEnvironment::RootPointCodeToPosition(const FString& Code, FVector& OutPosition) const
+{
+    // Root point codes: "RP-R00-C00", "RP-R02-C03", etc.
+    if (Code.StartsWith(TEXT("RP-")))
+    {
+        FString Rest = Code.RightChop(3); // Remove "RP-"
+
+        int32 CPos = Rest.Find(TEXT("-C"), ESearchCase::CaseSensitive);
+        if (Rest.StartsWith(TEXT("R")) && CPos > 1)
+        {
+            FString RowStr = Rest.Mid(1, CPos - 1);
+            FString ColStr = Rest.RightChop(CPos + 2);
+
+            int32 Row = FCString::Atoi(*RowStr);
+            int32 Col = FCString::Atoi(*ColStr);
+
+            OutPosition = CellToWorldPosition(Row, Col);
+            UE_LOG(LogTemp, Log, TEXT("[Warehouse] RootPoint '%s' -> R=%d, C=%d -> %s"),
+                *Code, Row, Col, *OutPosition.ToString());
+            return true;
+        }
+
+        UE_LOG(LogTemp, Warning, TEXT("[Warehouse] Failed to parse root point code: %s"), *Code);
+        return false;
+    }
+
+    // For other codes (ENTRY, EXIT, SP, etc.), delegate to GetSpotPosition
+    return GetSpotPosition(Code, OutPosition);
+}
+
+bool AWarehouseEnvironment::RootPointCodesToPositions(const TArray<FString>& Codes, TArray<FVector>& OutPositions) const
+{
+    OutPositions.Empty();
+    OutPositions.Reserve(Codes.Num());
+
+    for (const FString& Code : Codes)
+    {
+        FVector Pos;
+        if (!RootPointCodeToPosition(Code, Pos))
+        {
+            UE_LOG(LogTemp, Warning, TEXT("[Warehouse] Failed to convert waypoint code: %s"), *Code);
+            OutPositions.Empty();
+            return false;
+        }
+        OutPositions.Add(Pos);
+    }
+
+    UE_LOG(LogTemp, Log, TEXT("[Warehouse] Converted %d root point codes to positions"), OutPositions.Num());
+    return true;
+}
+
+FString AWarehouseEnvironment::FindNearestRootPointCode(const FVector& WorldPosition) const
+{
+    if (!bUsingDynamicLayout || CurrentLayout.Rows == 0 || CurrentLayout.Cols == 0)
+    {
+        return TEXT("");
+    }
+
+    float CellSz = GetCellSize();
+
+    // Reverse CellToWorldPosition: World = ActorLoc + FVector((Row+0.5)*CellSz, (Col+0.5)*CellSz, 0)
+    FVector LocalPos = WorldPosition - GetActorLocation();
+    int32 Row = FMath::RoundToInt(LocalPos.X / CellSz - 0.5f);
+    int32 Col = FMath::RoundToInt(LocalPos.Y / CellSz - 0.5f);
+
+    // Clamp to valid bounds
+    Row = FMath::Clamp(Row, 0, CurrentLayout.Rows - 1);
+    Col = FMath::Clamp(Col, 0, CurrentLayout.Cols - 1);
+
+    FString Code = FString::Printf(TEXT("RP-R%02d-C%02d"), Row, Col);
+    UE_LOG(LogTemp, Log, TEXT("[Warehouse] FindNearestRootPoint: WorldPos=%s → Row=%d Col=%d → %s"),
+        *WorldPosition.ToString(), Row, Col, *Code);
+    return Code;
 }

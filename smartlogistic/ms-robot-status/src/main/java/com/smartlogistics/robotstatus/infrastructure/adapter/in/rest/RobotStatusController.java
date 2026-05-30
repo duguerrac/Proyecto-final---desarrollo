@@ -3,8 +3,8 @@ package com.smartlogistics.robotstatus.infrastructure.adapter.in.rest;
 import com.smartlogistics.robotstatus.application.port.in.GetRobotStatusUseCase;
 import com.smartlogistics.robotstatus.application.port.in.SendRobotCommandUseCase;
 import com.smartlogistics.robotstatus.application.port.in.UpdateBatteryUseCase;
-import com.smartlogistics.robotstatus.application.port.out.TelemetryStreamPort;
 import com.smartlogistics.robotstatus.domain.exception.RobotNotFoundException;
+import com.smartlogistics.robotstatus.infrastructure.adapter.out.sse.SseTelemetryAdapter;
 import com.smartlogistics.robotstatus.domain.model.CommandType;
 import com.smartlogistics.robotstatus.domain.model.Robot;
 import com.smartlogistics.robotstatus.domain.model.RobotCommand;
@@ -26,17 +26,17 @@ public class RobotStatusController {
     private final GetRobotStatusUseCase getRobotStatusUseCase;
     private final UpdateBatteryUseCase updateBatteryUseCase;
     private final SendRobotCommandUseCase sendRobotCommandUseCase;
-    private final TelemetryStreamPort telemetryStreamPort;
+    private final SseTelemetryAdapter sseTelemetryAdapter;
     private final ExecutorService sseExecutor = Executors.newCachedThreadPool();
 
     public RobotStatusController(GetRobotStatusUseCase getRobotStatusUseCase,
                                  UpdateBatteryUseCase updateBatteryUseCase,
                                  SendRobotCommandUseCase sendRobotCommandUseCase,
-                                 TelemetryStreamPort telemetryStreamPort) {
+                                 SseTelemetryAdapter sseTelemetryAdapter) {
         this.getRobotStatusUseCase = getRobotStatusUseCase;
         this.updateBatteryUseCase = updateBatteryUseCase;
         this.sendRobotCommandUseCase = sendRobotCommandUseCase;
-        this.telemetryStreamPort = telemetryStreamPort;
+        this.sseTelemetryAdapter = sseTelemetryAdapter;
     }
 
     // ──────────── Status Endpoints ────────────
@@ -138,13 +138,13 @@ public class RobotStatusController {
 
     @GetMapping(value = "/telemetry/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter streamTelemetry() {
-        SseEmitter emitter = telemetryStreamPort.createEmitter();
+        SseEmitter emitter = sseTelemetryAdapter.createEmitter();
         return emitter;
     }
 
     @GetMapping(value = "/{id}/telemetry/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter streamRobotTelemetry(@PathVariable String id) {
-        SseEmitter emitter = telemetryStreamPort.createEmitterForRobot(id);
+        SseEmitter emitter = sseTelemetryAdapter.createEmitterForRobot(id);
         return emitter;
     }
 

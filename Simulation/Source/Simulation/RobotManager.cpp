@@ -126,6 +126,7 @@ void ARobotManager::ConnectToNats()
         NatsClient->OnRobotStatusReceived.AddDynamic(this, &ARobotManager::HandleRobotStatusEvent);
         NatsClient->OnRobotCommandReceived.AddDynamic(this, &ARobotManager::HandleRobotCommand);
         NatsClient->OnPackageMissionReceived.AddDynamic(this, &ARobotManager::HandleMissionCommand);
+        NatsClient->OnPackageReceived.AddDynamic(this, &ARobotManager::HandlePackageReceived);
         NatsClient->Connect(NatsUrl);
         bIsNatsConnected = true;
         UE_LOG(LogTemp, Log, TEXT("[RobotManager] NATS client created and connecting..."));
@@ -590,19 +591,116 @@ void ARobotManager::HandleMissionCommand(const FString& InRobotId, int64 InPacka
     // Set mission on robot
     Robot->SetMission(Mission);
 
-    // For STOCK_IN: first go to reception to pick up, then to target
+    // Use route planning API for navigation
     if (InMissionType == TEXT("STOCK_IN"))
     {
-        Robot->MoveTo(ReceptionPos);
-        UE_LOG(LogTemp, Log, TEXT("[RobotManager] Robot '%s' dispatched to RECEPTION '%s' at %s"),
-            *InRobotId, *InReceptionSpotCode, *ReceptionPos.ToString());
+        // First leg: robot current position → reception spot
+        RequestRouteAndFollowWaypoints(Robot, Robot->CurrentLocationCode, InReceptionSpotCode, false);
+        UE_LOG(LogTemp, Log, TEXT("[RobotManager] Robot '%s' routing to RECEPTION '%s'"),
+            *InRobotId, *InReceptionSpotCode);
     }
     else
     {
-        Robot->MoveTo(TargetPos);
-        UE_LOG(LogTemp, Log, TEXT("[RobotManager] Robot '%s' dispatched to TARGET '%s' at %s"),
-            *InRobotId, *InTargetSpotCode, *TargetPos.ToString());
+        // STOCK_OUT: robot → target spot directly
+        RequestRouteAndFollowWaypoints(Robot, Robot->CurrentLocationCode, InTargetSpotCode, false);
+        UE_LOG(LogTemp, Log, TEXT("[RobotManager] Robot '%s' routing to TARGET '%s'"),
+            *InRobotId, *InTargetSpotCode);
     }
+}
+
+void ARobotManager::HandlePackageReceived(int64 PackageId, const FString& Sku, int32 Quantity,
+    const FString& ReceptionSpotCode, const FString& TargetSpotCode)
+{
+    UE_LOG(LogTemp, Log, TEXT("[RobotManager] Package received: pkg=%lld sku=%s qty=%d at reception=%s -> target=%s"),
+        PackageId, *Sku, Quantity, *ReceptionSpotCode, *TargetSpotCode);
+
+    if (!WarehouseEnv)
+    {
+        UE_LOG(LogTemp, Warning, TEXT("[RobotManager] No WarehouseEnv - cannot spawn package visual"));
+        return;
+    }
+
+    // Spawn a box visual at the reception spot
+    WarehouseEnv->SpawnItemVisualAtSpot(ReceptionSpotCode, PackageId, Sku, Quantity);
+
+    // Auto-dispatch: find an available (idle) robot with enough battery
+    AWarehouseRobot* BestRobot = nullptr;
+    float BestDist = FLT_MAX;
+
+    for (auto& Pair : RobotActors)
+    {
+        AWarehouseRobot* Robot = Pair.Value;
+        if (!Robot) continue;
+
+        // Check if robot is available (idle, not on a mission)
+        const FRobotMissionData& CurMission = Robot->ActiveMission;
+        bool bIdle = CurMission.PackageId == 0 && CurMission.MissionType.IsEmpty();
+
+        if (!bIdle) continue;
+
+        // Skip robots with low battery (they should go charge instead)
+        if (Robot->GetBatteryLevel() < 20.0f)
+        {
+            UE_LOG(LogTemp, Log, TEXT("[RobotManager] Skipping robot '%s' for dispatch - low battery (%.0f%%)"),
+                *Robot->RobotId, Robot->GetBatteryLevel());
+            // Auto-send to nearest charging station
+            AutoChargeRobot(Robot);
+            continue;
+        }
+
+        // Prefer the closest idle robot to the reception spot
+        FVector ReceptionPos;
+        if (WarehouseEnv->GetSpotPosition(ReceptionSpotCode, ReceptionPos))
+        {
+            float Dist = FVector::Dist(Robot->GetActorLocation(), ReceptionPos);
+            if (Dist < BestDist)
+            {
+                BestDist = Dist;
+                BestRobot = Robot;
+            }
+        }
+        else if (!BestRobot)
+        {
+            BestRobot = Robot; // fallback: any idle robot
+        }
+    }
+
+    if (!BestRobot)
+    {
+        UE_LOG(LogTemp, Warning, TEXT("[RobotManager] No idle robot available for package %lld - will wait for mission command"), PackageId);
+        return;
+    }
+
+    UE_LOG(LogTemp, Log, TEXT("[RobotManager] Auto-dispatching robot '%s' for package %lld (dist=%.0f)"),
+        *BestRobot->RobotId, PackageId, BestDist);
+
+    // Resolve positions
+    FVector ReceptionPos = FVector::ZeroVector;
+    WarehouseEnv->GetSpotPosition(ReceptionSpotCode, ReceptionPos);
+
+    FVector TargetPos = FVector::ZeroVector;
+    if (!WarehouseEnv->GetSpotPosition(TargetSpotCode, TargetPos))
+    {
+        UE_LOG(LogTemp, Warning, TEXT("[RobotManager] Target spot '%s' not found for auto-dispatch"), *TargetSpotCode);
+    }
+
+    // Build mission and dispatch
+    FRobotMissionData Mission;
+    Mission.PackageId = PackageId;
+    Mission.MissionType = TEXT("STOCK_IN");
+    Mission.ReceptionSpotCode = ReceptionSpotCode;
+    Mission.TargetSpotCode = TargetSpotCode;
+    Mission.ReceptionSpotPosition = ReceptionPos;
+    Mission.TargetSpotPosition = TargetPos;
+    Mission.MissionPhase = TEXT("GO_TO_RECEPTION");
+
+    BestRobot->SetMission(Mission);
+
+    // Use route planning for auto-dispatch navigation
+    RequestRouteAndFollowWaypoints(BestRobot, BestRobot->CurrentLocationCode, ReceptionSpotCode, false);
+
+    UE_LOG(LogTemp, Log, TEXT("[RobotManager] Robot '%s' auto-dispatched: routing to reception '%s'"),
+        *BestRobot->RobotId, *ReceptionSpotCode);
 }
 
 void ARobotManager::HandleRobotArrival(AWarehouseRobot* Robot, const FString& MissionType)
@@ -614,14 +712,45 @@ void ARobotManager::HandleRobotArrival(AWarehouseRobot* Robot, const FString& Mi
     UE_LOG(LogTemp, Log, TEXT("[RobotManager] Robot '%s' arrived for mission type=%s, package=%lld, spot=%s, phase=%s"),
         *Robot->RobotId, *MissionType, Mission.PackageId, *Mission.TargetSpotCode, *Mission.MissionPhase);
 
+    // Update robot's current location code based on where it arrived
+    if (Mission.MissionPhase == TEXT("GO_TO_RECEPTION"))
+    {
+        Robot->CurrentLocationCode = Mission.ReceptionSpotCode;
+    }
+    else if (Mission.MissionPhase == TEXT("GO_TO_TARGET"))
+    {
+        Robot->CurrentLocationCode = Mission.TargetSpotCode;
+    }
+
     // Handle multi-phase missions (STOCK_IN: go to reception first, then to target)
     if (MissionType == TEXT("STOCK_IN") && Mission.MissionPhase == TEXT("GO_TO_RECEPTION"))
     {
-        // Arrived at reception - pick up item, then head to target storage spot
+        // Arrived at reception - pick up item, remove visual, then route to target storage spot
         Robot->PickUpItem();
+
+        // Remove the package box visual from the reception spot
+        if (WarehouseEnv)
+        {
+            WarehouseEnv->RemoveItemVisual(Mission.PackageId);
+        }
+
+        // Publish package.taken so backend updates package status to IN_TRANSIT
+        if (NatsClient && NatsClient->IsConnected())
+        {
+            FString TakenJson = FString::Printf(
+                TEXT("{\"packageId\":%lld,\"robotId\":\"%s\"}"),
+                Mission.PackageId, *Robot->RobotId);
+            NatsClient->Publish(TEXT("package.taken"), TakenJson);
+            UE_LOG(LogTemp, Log, TEXT("[RobotManager] Published package.taken for pkg=%lld robot=%s"),
+                Mission.PackageId, *Robot->RobotId);
+        }
+
         Robot->ActiveMission.MissionPhase = TEXT("GO_TO_TARGET");
-        Robot->MoveTo(Mission.TargetSpotPosition);
-        UE_LOG(LogTemp, Log, TEXT("[RobotManager] Robot '%s' picked up at reception, heading to target '%s'"),
+
+        // Use route planning for second leg: reception → target
+        RequestRouteAndFollowWaypoints(Robot, Mission.ReceptionSpotCode, Mission.TargetSpotCode, true);
+
+        UE_LOG(LogTemp, Log, TEXT("[RobotManager] Robot '%s' picked up at reception, routing to target '%s'"),
             *Robot->RobotId, *Mission.TargetSpotCode);
         return; // Don't clear mission yet
     }
@@ -630,9 +759,20 @@ void ARobotManager::HandleRobotArrival(AWarehouseRobot* Robot, const FString& Mi
     {
         // Arrived at final destination - drop off items
         Robot->DropOffItems();
+
+        // Publish package.delivered so backend updates package status to DELIVERED
+        if (NatsClient && NatsClient->IsConnected())
+        {
+            FString DeliveredJson = FString::Printf(
+                TEXT("{\"packageId\":%lld}"),
+                Mission.PackageId);
+            NatsClient->Publish(TEXT("package.delivered"), DeliveredJson);
+            UE_LOG(LogTemp, Log, TEXT("[RobotManager] Published package.delivered for pkg=%lld"),
+                Mission.PackageId);
+        }
     }
 
-    // Publish completion event
+    // Publish completion event (keep for analytics/monitoring)
     PublishMissionEvent(TEXT("MISSION_COMPLETED"), Robot->RobotId,
         Mission.PackageId, Mission.TargetSpotCode, Mission.MissionType);
 
@@ -668,6 +808,41 @@ void ARobotManager::PublishMissionEvent(const FString& EventType, const FString&
 }
 
 // ─── Robot Sync from Backend ────────────────────────────────────────
+
+void ARobotManager::AutoChargeRobot(AWarehouseRobot* Robot)
+{
+    if (!Robot || ChargingStations.Num() == 0) return;
+
+    FVector RobotPos = Robot->GetActorLocation();
+    FVector NearestStation = ChargingStations[0];
+    float MinDist = FVector::Dist(RobotPos, NearestStation);
+
+    for (const FVector& Station : ChargingStations)
+    {
+        float Dist = FVector::Dist(RobotPos, Station);
+        if (Dist < MinDist)
+        {
+            MinDist = Dist;
+            NearestStation = Station;
+        }
+    }
+
+    UE_LOG(LogTemp, Log, TEXT("[RobotManager] Auto-charging robot '%s' (battery=%.0f%%) → nearest station at %s"),
+        *Robot->RobotId, Robot->GetBatteryLevel(), *NearestStation.ToString());
+
+    // Set a charge mission so the robot doesn't get dispatched while charging
+    FRobotMissionData ChargeMission;
+    ChargeMission.PackageId = 0;
+    ChargeMission.MissionType = TEXT("CHARGE");
+    ChargeMission.ReceptionSpotCode = TEXT("");
+    ChargeMission.TargetSpotCode = TEXT("CHARGING_STATION");
+    ChargeMission.ReceptionSpotPosition = NearestStation;
+    ChargeMission.TargetSpotPosition = NearestStation;
+    ChargeMission.MissionPhase = TEXT("GO_TO_CHARGE");
+
+    Robot->SetMission(ChargeMission);
+    Robot->GoCharge(NearestStation);
+}
 
 void ARobotManager::FetchRobotsFromBackend()
 {
@@ -740,6 +915,208 @@ void ARobotManager::FetchRobotsFromBackend()
 
         UE_LOG(LogTemp, Log, TEXT("[RobotManager] Synced %d robots from backend (total actors: %d)"),
             SpawnedCount, RobotActors.Num());
+    });
+
+    Request->ProcessRequest();
+}
+
+// ─── Route Planning Integration ────────────────────────────────────
+
+void ARobotManager::RequestRouteAndFollowWaypoints(AWarehouseRobot* Robot, const FString& FromCode, const FString& ToCode,
+    bool bPickUpAtDestination)
+{
+    if (!Robot)
+    {
+        UE_LOG(LogTemp, Warning, TEXT("[RobotManager] RequestRouteAndFollowWaypoints: null robot"));
+        return;
+    }
+
+    // If no "from" code, resolve it from the robot's current world position
+    FString ResolvedFrom = FromCode;
+    if (ResolvedFrom.IsEmpty() && WarehouseEnv)
+    {
+        ResolvedFrom = WarehouseEnv->FindNearestRootPointCode(Robot->GetActorLocation());
+        UE_LOG(LogTemp, Log, TEXT("[RobotManager] Robot '%s' no CurrentLocationCode, resolved from world pos → %s"),
+            *Robot->RobotId, *ResolvedFrom);
+    }
+
+    // If still no location code, fall back to direct movement
+    if (ResolvedFrom.IsEmpty() || ToCode.IsEmpty())
+    {
+        UE_LOG(LogTemp, Warning, TEXT("[RobotManager] Robot '%s' missing location code (from=%s, to=%s), using direct move"),
+            *Robot->RobotId, *ResolvedFrom, *ToCode);
+
+        // Direct move as fallback
+        if (bPickUpAtDestination)
+        {
+            Robot->MoveTo(Robot->ActiveMission.TargetSpotPosition);
+        }
+        else
+        {
+            Robot->MoveTo(Robot->ActiveMission.ReceptionSpotPosition);
+        }
+        return;
+    }
+
+    // Same location — no route needed
+    if (ResolvedFrom == ToCode)
+    {
+        UE_LOG(LogTemp, Log, TEXT("[RobotManager] Robot '%s' already at destination '%s'"), *Robot->RobotId, *ToCode);
+
+        // Trigger arrival immediately
+        if (Robot->bOnMission)
+        {
+            Robot->OnArrivalAtTarget.Broadcast(Robot, Robot->ActiveMission.MissionType);
+        }
+        return;
+    }
+
+    FString Url = FString::Printf(TEXT("%s/api/routes/from/%s/to/%s"),
+        *WarehouseApiUrl, *ResolvedFrom, *ToCode);
+
+    UE_LOG(LogTemp, Log, TEXT("[RobotManager] Requesting route: %s"), *Url);
+
+    TSharedRef<IHttpRequest, ESPMode::ThreadSafe> Request = FHttpModule::Get().CreateRequest();
+    Request->SetURL(Url);
+    Request->SetVerb(TEXT("GET"));
+    Request->SetHeader(TEXT("Content-Type"), TEXT("application/json"));
+    Request->SetTimeout(5.0f);
+
+    // Capture robot ID and pick-up flag in the lambda
+    FString RobotId = Robot->RobotId;
+    bool bPickUp = bPickUpAtDestination;
+
+    Request->OnProcessRequestComplete().BindLambda([this, RobotId, bPickUp](FHttpRequestPtr Req, FHttpResponsePtr Resp, bool bSuccess)
+    {
+        AWarehouseRobot** Found = RobotActors.Find(RobotId);
+        if (!Found || !*Found)
+        {
+            UE_LOG(LogTemp, Warning, TEXT("[RobotManager] Route response for robot '%s' but robot no longer exists"), *RobotId);
+            return;
+        }
+        AWarehouseRobot* Robot = *Found;
+
+        if (!bSuccess || !Resp.IsValid())
+        {
+            UE_LOG(LogTemp, Warning, TEXT("[RobotManager] Route request failed for robot '%s', falling back to direct move"), *RobotId);
+            // Fallback: direct move
+            if (bPickUp)
+                Robot->MoveTo(Robot->ActiveMission.TargetSpotPosition);
+            else
+                Robot->MoveTo(Robot->ActiveMission.ReceptionSpotPosition);
+            return;
+        }
+
+        int32 Code = Resp->GetResponseCode();
+        FString Body = Resp->GetContentAsString();
+
+        if (Code != 200)
+        {
+            UE_LOG(LogTemp, Warning, TEXT("[RobotManager] Route API returned HTTP %d for robot '%s', falling back to direct move"), Code, *RobotId);
+            if (bPickUp)
+                Robot->MoveTo(Robot->ActiveMission.TargetSpotPosition);
+            else
+                Robot->MoveTo(Robot->ActiveMission.ReceptionSpotPosition);
+            return;
+        }
+
+        // Parse the route response: { "from": "...", "to": "...", "path": [...], "waypoints": [...] }
+        TSharedPtr<FJsonObject> RootObj;
+        TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(Body);
+
+        if (!FJsonSerializer::Deserialize(Reader, RootObj) || !RootObj.IsValid())
+        {
+            UE_LOG(LogTemp, Error, TEXT("[RobotManager] Failed to parse route JSON for robot '%s'"), *RobotId);
+            Robot->MoveTo(Robot->ActiveMission.TargetSpotPosition);
+            return;
+        }
+
+        // Debug: log the raw JSON to understand structure
+        UE_LOG(LogTemp, Log, TEXT("[RobotManager] Route response for '%s': %s"), *RobotId, *Body.Left(500));
+
+        TArray<FVector> Waypoints;
+        int32 ResolvedCount = 0;
+
+        // ─── Strategy 1: Use waypoints array with x,y coordinates from backend ───
+        const TArray<TSharedPtr<FJsonValue>>* WaypointsArray;
+        bool bHasWaypoints = RootObj->TryGetArrayField(TEXT("waypoints"), WaypointsArray);
+        UE_LOG(LogTemp, Log, TEXT("[RobotManager] waypoints field present=%s, count=%d"),
+            bHasWaypoints ? TEXT("true") : TEXT("false"),
+            bHasWaypoints ? WaypointsArray->Num() : 0);
+
+        if (bHasWaypoints && WaypointsArray->Num() > 0)
+        {
+            float CellSz = WarehouseEnv ? WarehouseEnv->GetCellSize() : 200.0f;
+            FVector ActorOffset = WarehouseEnv ? WarehouseEnv->GetActorLocation() : FVector::ZeroVector;
+
+            for (const TSharedPtr<FJsonValue>& WpValue : *WaypointsArray)
+            {
+                TSharedPtr<FJsonObject> WpObj = WpValue->AsObject();
+                if (!WpObj.IsValid()) continue;
+
+                double WpX = WpObj->GetNumberField(TEXT("x"));
+                double WpY = WpObj->GetNumberField(TEXT("y"));
+                FString WpCode = WpObj->GetStringField(TEXT("code"));
+                FString WpAction = WpObj->GetStringField(TEXT("action"));
+
+                // Backend: x = col*cellSize, y = row*cellSize (corner-based)
+                // UE5 CellToWorldPosition: X = (row+0.5)*cellSize, Y = (col+0.5)*cellSize (center-based + actor loc)
+                float UE5_X = static_cast<float>(WpY) + CellSz / 2.0f;
+                float UE5_Y = static_cast<float>(WpX) + CellSz / 2.0f;
+                FVector WorldPos = ActorOffset + FVector(UE5_X, UE5_Y, 0.0f);
+                Waypoints.Add(WorldPos);
+                ResolvedCount++;
+
+                UE_LOG(LogTemp, Log, TEXT("[RobotManager]   Waypoint %d: code=%s pos=(%.0f,%.0f) action=%s"),
+                    ResolvedCount, *WpCode, WpX, WpY, *WpAction);
+            }
+
+            UE_LOG(LogTemp, Log, TEXT("[RobotManager] Robot '%s' route: %d waypoints with coordinates from backend"),
+                *RobotId, ResolvedCount);
+        }
+        else
+        {
+            // ─── Strategy 2: Fallback - resolve path codes via WarehouseEnv ───
+            const TArray<TSharedPtr<FJsonValue>>* PathArray;
+            if (!RootObj->TryGetArrayField(TEXT("path"), PathArray) || PathArray->Num() == 0)
+            {
+                UE_LOG(LogTemp, Warning, TEXT("[RobotManager] Empty route path for robot '%s'"), *RobotId);
+                Robot->MoveTo(Robot->ActiveMission.TargetSpotPosition);
+                return;
+            }
+
+            for (const TSharedPtr<FJsonValue>& PathItem : *PathArray)
+            {
+                FString PointCode = PathItem->AsString();
+                FVector WorldPos;
+
+                if (WarehouseEnv && WarehouseEnv->GetSpotPosition(PointCode, WorldPos))
+                {
+                    Waypoints.Add(WorldPos);
+                    ResolvedCount++;
+                }
+                else
+                {
+                    UE_LOG(LogTemp, Warning, TEXT("[RobotManager] Could not resolve root point '%s' to world position"), *PointCode);
+                }
+            }
+
+            UE_LOG(LogTemp, Log, TEXT("[RobotManager] Robot '%s' route: %d root points → %d waypoints resolved via env"),
+                *RobotId, PathArray->Num(), ResolvedCount);
+        }
+
+        if (Waypoints.Num() == 0)
+        {
+            UE_LOG(LogTemp, Error, TEXT("[RobotManager] No waypoints resolved for robot '%s', falling back to direct move"), *RobotId);
+            if (bPickUp)
+                Robot->MoveTo(Robot->ActiveMission.TargetSpotPosition);
+            else
+                Robot->MoveTo(Robot->ActiveMission.ReceptionSpotPosition);
+            return;
+        }
+
+        // Instruct the robot to follow the waypoints
+        Robot->FollowWaypoints(Waypoints);
     });
 
     Request->ProcessRequest();

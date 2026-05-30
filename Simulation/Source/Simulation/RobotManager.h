@@ -153,6 +153,11 @@ private:
     void HandleMissionCommand(const FString& RobotId, int64 PackageId, const FString& MissionType,
         const FString& ReceptionSpotCode, const FString& TargetSpotCode, const FString& ItemSku, int32 Quantity);
 
+    /** Handle package.received event → spawn box at reception spot. */
+    UFUNCTION()
+    void HandlePackageReceived(int64 PackageId, const FString& Sku, int32 Quantity,
+        const FString& ReceptionSpotCode, const FString& TargetSpotCode);
+
     /** Handle robot arrival at mission target. */
     UFUNCTION()
     void HandleRobotArrival(AWarehouseRobot* Robot, const FString& MissionType);
@@ -167,6 +172,20 @@ private:
     /** Compute world position for robot slot index. */
     FVector GetSlotPosition(int32 SlotIndex) const;
 
+    /** Send a low-battery robot to the nearest charging station. */
+    void AutoChargeRobot(AWarehouseRobot* Robot);
+
     /** Fetch robots from the robot-status backend API and spawn actors. */
     void FetchRobotsFromBackend();
+
+    /**
+     * Request a route from the backend route-planning API and instruct the robot
+     * to follow the resulting waypoints.
+     * @param Robot The robot to dispatch
+     * @param FromCode Root point code for origin (e.g. "RP-R01-C02")
+     * @param ToCode Root point code for destination
+     * @param bPickUpAtDestination Whether to pick up items when arriving (affects mission phase)
+     */
+    void RequestRouteAndFollowWaypoints(AWarehouseRobot* Robot, const FString& FromCode, const FString& ToCode,
+        bool bPickUpAtDestination = false);
 };

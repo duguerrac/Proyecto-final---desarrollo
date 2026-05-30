@@ -86,6 +86,7 @@ void UNatsWebSocketClient::Disconnect()
     bNatsConnected = false;
     RxBuffer.Empty();
     PendingMsgHeader.Empty();
+    PendingMsgSubject.Empty();
     UE_LOG(LogTemp, Log, TEXT("[NATS-TCP] Disconnected"));
 }
 
@@ -170,6 +171,7 @@ void UNatsWebSocketClient::ProcessLine(const FString& Line)
         SendNatsConnect();
         SendNatsSubscribe(TEXT("smartlogistic.robot.status.>"));
         SendNatsSubscribe(TEXT("smartlogistic.robot.command.>"));
+        SendNatsSubscribe(TEXT("smartlogistic.package.>"));
     }
     else if (Line.StartsWith(TEXT("+OK")))
     {
@@ -183,6 +185,10 @@ void UNatsWebSocketClient::ProcessLine(const FString& Line)
     else if (Line.StartsWith(TEXT("MSG")))
     {
         PendingMsgHeader = Line;
+        // Extract subject: MSG <subject> <sid> [reply-to] <size>
+        TArray<FString> MsgParts;
+        Line.ParseIntoArrayWS(MsgParts);
+        PendingMsgSubject = MsgParts.Num() >= 2 ? MsgParts[1] : TEXT("");
     }
     else if (Line.StartsWith(TEXT("PING")))
     {
@@ -191,14 +197,77 @@ void UNatsWebSocketClient::ProcessLine(const FString& Line)
     else if (!PendingMsgHeader.IsEmpty())
     {
         FString JsonPayload = Line;
+        FString Subject = PendingMsgSubject;
         PendingMsgHeader.Empty();
+        PendingMsgSubject.Empty();
 
         TSharedPtr<FJsonObject> JsonObject;
         TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(JsonPayload);
 
-        if (FJsonSerializer::Deserialize(Reader, JsonObject) && JsonObject.IsValid())
+        if (!FJsonSerializer::Deserialize(Reader, JsonObject) || !JsonObject.IsValid())
         {
-            FString EventType = JsonObject->GetStringField(TEXT("event"));
+            UE_LOG(LogTemp, Warning, TEXT("[NATS-TCP] JSON parse failed on subject '%s': %s"), *Subject, *JsonPayload.Left(200));
+            return;
+        }
+
+        // ── Route by NATS subject ──────────────────────────────────
+
+        if (Subject == TEXT("smartlogistic.package.received"))
+        {
+            // From PackageController: {packageId, sku, itemId, quantity, receptionSpotCode, targetSpotCode}
+            int64 PackageId = (int64)JsonObject->GetNumberField(TEXT("packageId"));
+            FString Sku = JsonObject->HasField(TEXT("sku")) ? JsonObject->GetStringField(TEXT("sku")) : TEXT("");
+            int32 Quantity = JsonObject->HasField(TEXT("quantity")) ? JsonObject->GetIntegerField(TEXT("quantity")) : 1;
+            FString ReceptionSpot = JsonObject->HasField(TEXT("receptionSpotCode")) ? JsonObject->GetStringField(TEXT("receptionSpotCode")) : TEXT("");
+            FString TargetSpot = JsonObject->HasField(TEXT("targetSpotCode")) ? JsonObject->GetStringField(TEXT("targetSpotCode")) : TEXT("");
+
+            OnPackageReceived.Broadcast(PackageId, Sku, Quantity, ReceptionSpot, TargetSpot);
+            UE_LOG(LogTemp, Log, TEXT("[NATS-TCP] PackageReceived: pkg=%lld sku=%s qty=%d reception=%s target=%s"),
+                PackageId, *Sku, Quantity, *ReceptionSpot, *TargetSpot);
+        }
+        else if (Subject.StartsWith(TEXT("smartlogistic.robot.command")))
+        {
+            // Could be from robot-status ms (has "event":"ROBOT_COMMAND") or from PackageDispatchService (has "missionType")
+            if (JsonObject->HasField(TEXT("missionType")) || JsonObject->HasField(TEXT("mission")))
+            {
+                // STOCK_IN dispatch from PackageDispatchService
+                FString RobotId = JsonObject->GetStringField(TEXT("robotId"));
+                FString Mission = JsonObject->HasField(TEXT("missionType"))
+                    ? JsonObject->GetStringField(TEXT("missionType"))
+                    : JsonObject->GetStringField(TEXT("mission"));
+                int64 PackageId = 0;
+                if (JsonObject->HasField(TEXT("packageId")))
+                    PackageId = (int64)JsonObject->GetNumberField(TEXT("packageId"));
+                FString ReceptionSpot = JsonObject->HasField(TEXT("receptionSpotCode")) ? JsonObject->GetStringField(TEXT("receptionSpotCode")) : TEXT("");
+                FString TargetSpot = JsonObject->HasField(TEXT("targetSpotCode")) ? JsonObject->GetStringField(TEXT("targetSpotCode")) : TEXT("");
+                FString ItemSku = JsonObject->HasField(TEXT("sku")) ? JsonObject->GetStringField(TEXT("sku")) : TEXT("");
+                int32 Quantity = JsonObject->HasField(TEXT("quantity")) ? JsonObject->GetIntegerField(TEXT("quantity")) : 0;
+
+                OnPackageMissionReceived.Broadcast(RobotId, PackageId, Mission,
+                    ReceptionSpot, TargetSpot, ItemSku, Quantity);
+                UE_LOG(LogTemp, Log, TEXT("[NATS-TCP] PackageMission: %s -> pkg=%lld mission=%s from=%s to=%s"),
+                    *RobotId, PackageId, *Mission, *ReceptionSpot, *TargetSpot);
+            }
+            else if (JsonObject->HasField(TEXT("event")) && JsonObject->GetStringField(TEXT("event")) == TEXT("ROBOT_COMMAND"))
+            {
+                // Original command format
+                FString RobotId = JsonObject->GetStringField(TEXT("robotId"));
+                FString CmdType = JsonObject->GetStringField(TEXT("commandType"));
+                FString TargetLoc;
+                if (JsonObject->HasField(TEXT("targetLocation")))
+                    TargetLoc = JsonObject->GetStringField(TEXT("targetLocation"));
+                OnRobotCommandReceived.Broadcast(RobotId, CmdType, TargetLoc);
+                UE_LOG(LogTemp, Log, TEXT("[NATS-TCP] Command: %s -> %s (%s)"), *RobotId, *CmdType, *TargetLoc);
+            }
+            else
+            {
+                UE_LOG(LogTemp, Warning, TEXT("[NATS-TCP] Unknown robot.command format: %s"), *JsonPayload.Left(200));
+            }
+        }
+        else if (Subject.StartsWith(TEXT("smartlogistic.robot.status")))
+        {
+            // Robot status events (have "event" field)
+            FString EventType = JsonObject->HasField(TEXT("event")) ? JsonObject->GetStringField(TEXT("event")) : TEXT("");
 
             if (EventType == TEXT("STATUS_UPDATE"))
             {
@@ -227,47 +296,14 @@ void UNatsWebSocketClient::ProcessLine(const FString& Line)
                     }
                 }
             }
-            else if (EventType == TEXT("ROBOT_COMMAND"))
-            {
-                FString RobotId = JsonObject->GetStringField(TEXT("robotId"));
-                FString CmdType = JsonObject->GetStringField(TEXT("commandType"));
-                FString TargetLoc;
-                if (JsonObject->HasField(TEXT("targetLocation")))
-                    TargetLoc = JsonObject->GetStringField(TEXT("targetLocation"));
-
-                // Check for mission fields (STOCK_IN package transport)
-                if (JsonObject->HasField(TEXT("mission")) && JsonObject->HasField(TEXT("packageId")))
-                {
-                    FString Mission = JsonObject->GetStringField(TEXT("mission"));
-                    int64 PackageId = (int64)JsonObject->GetNumberField(TEXT("packageId"));
-                    FString ReceptionSpot = JsonObject->GetStringField(TEXT("receptionSpotCode"));
-                    FString TargetSpot = JsonObject->GetStringField(TEXT("targetSpotCode"));
-                    FString ItemSku;
-                    int32 Quantity = 0;
-                    if (JsonObject->HasField(TEXT("itemSku")))
-                        ItemSku = JsonObject->GetStringField(TEXT("itemSku"));
-                    if (JsonObject->HasField(TEXT("quantity")))
-                        Quantity = JsonObject->GetIntegerField(TEXT("quantity"));
-
-                    OnPackageMissionReceived.Broadcast(RobotId, PackageId, Mission,
-                        ReceptionSpot, TargetSpot, ItemSku, Quantity);
-                    UE_LOG(LogTemp, Log, TEXT("[NATS-TCP] PackageMission: %s -> pkg=%lld mission=%s from=%s to=%s"),
-                        *RobotId, PackageId, *Mission, *ReceptionSpot, *TargetSpot);
-                }
-                else
-                {
-                    OnRobotCommandReceived.Broadcast(RobotId, CmdType, TargetLoc);
-                    UE_LOG(LogTemp, Log, TEXT("[NATS-TCP] Command: %s -> %s (%s)"), *RobotId, *CmdType, *TargetLoc);
-                }
-            }
             else
             {
-                UE_LOG(LogTemp, Warning, TEXT("[NATS-TCP] Unknown event: %s"), *EventType);
+                UE_LOG(LogTemp, Warning, TEXT("[NATS-TCP] Unknown status event '%s': %s"), *EventType, *JsonPayload.Left(200));
             }
         }
         else
         {
-            UE_LOG(LogTemp, Warning, TEXT("[NATS-TCP] JSON parse failed: %s"), *JsonPayload.Left(200));
+            UE_LOG(LogTemp, Warning, TEXT("[NATS-TCP] Unhandled subject '%s': %s"), *Subject, *JsonPayload.Left(200));
         }
     }
 }

@@ -135,12 +135,18 @@ public class SseTelemetryAdapter implements TelemetryStreamPort {
         }
     }
 
-    @Override
+    /**
+     * Create a new SSE emitter for all-robots telemetry stream.
+     * Not part of TelemetryStreamPort — infrastructure-only concern.
+     */
     public SseEmitter createEmitter() {
         return createAndRegisterEmitter(null);
     }
 
-    @Override
+    /**
+     * Create a new SSE emitter for a specific robot's telemetry stream.
+     * Not part of TelemetryStreamPort — infrastructure-only concern.
+     */
     public SseEmitter createEmitterForRobot(String robotId) {
         return createAndRegisterEmitter(robotId);
     }

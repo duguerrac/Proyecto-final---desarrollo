@@ -1,10 +1,11 @@
 package com.smartlogistics.robotstatus.application.port.out;
 
-import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
-
 /**
  * Hexagonal output port for streaming telemetry data to frontends.
- * Designed to be extractable to a dedicated ms-realtime-gateway (Phase 2).
+ * Pure Java — zero framework imports.
+ *
+ * SSE emitter lifecycle management is handled by the infrastructure
+ * adapter (SseTelemetryAdapter), not by this port.
  */
 public interface TelemetryStreamPort {
 
@@ -15,19 +16,4 @@ public interface TelemetryStreamPort {
      * @param jsonData  the full JSON payload to stream
      */
     void broadcastTelemetry(String robotId, String jsonData);
-
-    /**
-     * Create a new SSE emitter for all-robots telemetry stream.
-     *
-     * @return SseEmitter for the connected client
-     */
-    SseEmitter createEmitter();
-
-    /**
-     * Create a new SSE emitter for a specific robot's telemetry stream.
-     *
-     * @param robotId the robot ID to filter events for
-     * @return SseEmitter for the connected client
-     */
-    SseEmitter createEmitterForRobot(String robotId);
 }

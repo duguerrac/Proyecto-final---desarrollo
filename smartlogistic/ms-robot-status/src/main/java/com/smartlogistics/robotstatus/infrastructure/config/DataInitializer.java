@@ -1,7 +1,7 @@
 package com.smartlogistics.robotstatus.infrastructure.config;
 
+import com.smartlogistics.robotstatus.application.port.in.PublishSnapshotUseCase;
 import com.smartlogistics.robotstatus.application.port.in.UpdateBatteryUseCase;
-import com.smartlogistics.robotstatus.application.service.RobotStatusService;
 import com.smartlogistics.robotstatus.domain.model.Robot;
 import com.smartlogistics.robotstatus.domain.model.RobotStatus;
 import org.springframework.boot.CommandLineRunner;
@@ -16,12 +16,12 @@ import org.springframework.stereotype.Component;
 public class DataInitializer implements CommandLineRunner {
 
     private final UpdateBatteryUseCase updateBatteryUseCase;
-    private final RobotStatusService robotStatusService;
+    private final PublishSnapshotUseCase publishSnapshotUseCase;
 
     public DataInitializer(UpdateBatteryUseCase updateBatteryUseCase,
-                           RobotStatusService robotStatusService) {
+                           PublishSnapshotUseCase publishSnapshotUseCase) {
         this.updateBatteryUseCase = updateBatteryUseCase;
-        this.robotStatusService = robotStatusService;
+        this.publishSnapshotUseCase = publishSnapshotUseCase;
     }
 
     @Override
@@ -33,7 +33,7 @@ public class DataInitializer implements CommandLineRunner {
         seedRobot("RBT-LOW", "Robot Low Battery", 10, true, "AISLE-B-01", RobotStatus.IDLE);
 
         // Publish initial batch snapshot for Unreal Engine simulation
-        robotStatusService.publishBatchSnapshot();
+        publishSnapshotUseCase.publishBatchSnapshot();
 
         System.out.println("[DataInitializer] Seeded 5 robots into Redis + NATS batch snapshot published");
     }

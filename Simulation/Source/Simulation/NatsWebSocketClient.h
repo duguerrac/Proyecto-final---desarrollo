@@ -22,6 +22,14 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_SevenParams(FOnPackageMissionReceived,
     const FString&, ItemSku,
     int32, Quantity);
 
+/** Delegate broadcast when a package.received event arrives (item waiting at reception) */
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_FiveParams(FOnPackageReceived,
+    int64, PackageId,
+    const FString&, Sku,
+    int32, Quantity,
+    const FString&, ReceptionSpotCode,
+    const FString&, TargetSpotCode);
+
 /**
  * NATS client using raw TCP socket (more reliable than WebSocket on UE5/Windows).
  * Connects directly to NATS server on port 4222.
@@ -59,11 +67,16 @@ public:
     UPROPERTY(BlueprintAssignable, Category = "SmartLogistics")
     FOnPackageMissionReceived OnPackageMissionReceived;
 
+    /** Delegate broadcast when a package.received event arrives (item at reception) */
+    UPROPERTY(BlueprintAssignable, Category = "SmartLogistics")
+    FOnPackageReceived OnPackageReceived;
+
 private:
     // --- TCP Socket ---
     FSocket* NatsSocket = nullptr;
     FString RxBuffer;
-    FString PendingMsgHeader;
+    FString PendingMsgHeader;   // Full MSG line while waiting for payload
+    FString PendingMsgSubject;  // Subject from last MSG header
     bool bNatsConnected = false;
     int32 NextSubId = 1;
 

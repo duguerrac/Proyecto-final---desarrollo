@@ -188,31 +188,31 @@ services:
       - smartlogistic-net
 
   # ─────────────────────────────
-  # Fase D: MS-LogisticsAnalytics
+  # Fase D: MS-LogisticsAnalytics (disabled — directory not yet created)
   # ─────────────────────────────
 
-  ms-logistics-analytics:
-    build:
-      context: .
-      dockerfile: ms-logistics-analytics/Dockerfile
-    container_name: smartlogistic-analytics
-    restart: unless-stopped
-    ports:
-      - "${ANALYTICS_PORT:-8083}:8083"
-    environment:
-      SERVER_PORT: 8083
-      SPRING_DATA_MONGODB_URI: mongodb://analytics-db:27017/${MONGO_DB:-logistics_analytics}
-      NATS_URL: nats://nats:4222
-      MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE: prometheus,health,info
-      MANAGEMENT_TRACING_SAMPLING_PROBABILITY: "1.0"
-      OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4318
-    depends_on:
-      analytics-db:
-        condition: service_healthy
-      nats:
-        condition: service_started
-    networks:
-      - smartlogistic-net
+  # ms-logistics-analytics:
+  #   build:
+  #     context: .
+  #     dockerfile: ms-logistics-analytics/Dockerfile
+  #   container_name: smartlogistic-analytics
+  #   restart: unless-stopped
+  #   ports:
+  #     - "${ANALYTICS_PORT:-8083}:8083"
+  #   environment:
+  #     SERVER_PORT: 8083
+  #     SPRING_DATA_MONGODB_URI: mongodb://analytics-db:27017/${MONGO_DB:-logistics_analytics}
+  #     NATS_URL: nats://nats:4222
+  #     MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE: prometheus,health,info
+  #     MANAGEMENT_TRACING_SAMPLING_PROBABILITY: "1.0"
+  #     OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4318
+  #   depends_on:
+  #     analytics-db:
+  #       condition: service_healthy
+  #     nats:
+  #       condition: service_started
+  #   networks:
+  #     - smartlogistic-net
 
   # ─────────────────────────────
   # Fase A.5: MS-Identity
@@ -263,7 +263,6 @@ services:
       - ms-identity
       - ms-warehouse-core
       - ms-robot-status
-      - ms-logistics-analytics
     networks:
       - smartlogistic-net
 
