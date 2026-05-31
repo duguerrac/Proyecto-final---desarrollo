@@ -1,11 +1,12 @@
-package com.smartlogistics.robotstatus.infrastructure.adapter.out.nats;
+package com.smartlogistics.robotstatus.infrastructure.adapter.out.rabbitmq;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.smartlogistics.robotstatus.application.port.out.RobotEventPort;
 import com.smartlogistics.robotstatus.domain.model.Robot;
-import io.nats.client.Connection;
+import com.smartlogistics.robotstatus.infrastructure.config.RabbitMQConfig;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.stereotype.Component;
 
 import java.time.Instant;
@@ -14,22 +15,18 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * NATS adapter for publishing robot status events (updates & batches).
- * Single responsibility: status event publishing only.
- * Infrastructure layer — framework imports allowed.
+ * RabbitMQ adapter for publishing robot status events (updates & batches).
  */
 @Component
-public class NatsRobotEventPublisher implements RobotEventPort {
+public class RabbitRobotEventPublisher implements RobotEventPort {
 
-    private static final Logger log = LoggerFactory.getLogger(NatsRobotEventPublisher.class);
-    private static final String SUBJECT_UPDATE = "smartlogistic.robot.status.update";
-    private static final String SUBJECT_BATCH = "smartlogistic.robot.status.batch";
+    private static final Logger log = LoggerFactory.getLogger(RabbitRobotEventPublisher.class);
 
-    private final Connection natsConnection;
+    private final RabbitTemplate rabbitTemplate;
     private final ObjectMapper objectMapper;
 
-    public NatsRobotEventPublisher(Connection natsConnection, ObjectMapper objectMapper) {
-        this.natsConnection = natsConnection;
+    public RabbitRobotEventPublisher(RabbitTemplate rabbitTemplate, ObjectMapper objectMapper) {
+        this.rabbitTemplate = rabbitTemplate;
         this.objectMapper = objectMapper;
     }
 
@@ -43,8 +40,8 @@ public class NatsRobotEventPublisher implements RobotEventPort {
             event.put("robot", toRobotMap(robot));
 
             String json = objectMapper.writeValueAsString(event);
-            natsConnection.publish(SUBJECT_UPDATE, json.getBytes());
-            log.info("Published STATUS_UPDATE for robot {} to subject {}", robot.getId(), SUBJECT_UPDATE);
+            rabbitTemplate.convertAndSend(RabbitMQConfig.EXCHANGE, RabbitMQConfig.RK_ROBOT_STATUS_UPDATE, json);
+            log.info("Published STATUS_UPDATE for robot {} to exchange {}", robot.getId(), RabbitMQConfig.EXCHANGE);
         } catch (Exception e) {
             log.error("Failed to publish STATUS_UPDATE for robot {}: {}", robot.getId(), e.getMessage());
         }
@@ -61,7 +58,7 @@ public class NatsRobotEventPublisher implements RobotEventPort {
             event.put("robots", robots.stream().map(this::toRobotMap).toList());
 
             String json = objectMapper.writeValueAsString(event);
-            natsConnection.publish(SUBJECT_BATCH, json.getBytes());
+            rabbitTemplate.convertAndSend(RabbitMQConfig.EXCHANGE, RabbitMQConfig.RK_ROBOT_STATUS_BATCH, json);
             log.debug("Published STATUS_BATCH with {} robots", robots.size());
         } catch (Exception e) {
             log.error("Failed to publish STATUS_BATCH: {}", e.getMessage());

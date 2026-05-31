@@ -5,9 +5,6 @@ import com.smartlogistics.robotstatus.application.port.out.RobotCachePort;
 import com.smartlogistics.robotstatus.domain.model.Robot;
 import com.smartlogistics.robotstatus.domain.model.RobotStatus;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import io.nats.client.Connection;
-import io.nats.client.Dispatcher;
-import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -16,14 +13,11 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 
 /**
  * SSE adapter that:
- * 1. Subscribes to NATS per-robot telemetry (from UE5 simulation)
+ * 1. Receives telemetry via RabbitTelemetrySubscriber (which calls broadcastTelemetry)
  * 2. Updates Redis cache with latest robot data
  * 3. Broadcasts real-time events to all connected SSE clients
  *
@@ -33,49 +27,55 @@ import java.util.concurrent.Executors;
 public class SseTelemetryAdapter implements TelemetryStreamPort {
 
     private static final Logger log = LoggerFactory.getLogger(SseTelemetryAdapter.class);
-    private static final String TELEMETRY_SUBJECT = "smartlogistic.robot.telemetry.>";
     private static final long SSE_TIMEOUT_MS = 300_000; // 5 minutes
 
-    private final Connection natsConnection;
     private final RobotCachePort robotCachePort;
     private final ObjectMapper objectMapper;
 
     private final List<SseEmitter> clients = new CopyOnWriteArrayList<>();
-    private final ExecutorService executor = Executors.newCachedThreadPool();
-    private Dispatcher natsDispatcher;
 
-    public SseTelemetryAdapter(Connection natsConnection, RobotCachePort robotCachePort, ObjectMapper objectMapper) {
-        this.natsConnection = natsConnection;
+    public SseTelemetryAdapter(RobotCachePort robotCachePort, ObjectMapper objectMapper) {
         this.robotCachePort = robotCachePort;
         this.objectMapper = objectMapper;
     }
 
-    @PostConstruct
-    public void subscribeToNats() {
-        natsDispatcher = natsConnection.createDispatcher(msg -> {
-            try {
-                String json = new String(msg.getData());
-                @SuppressWarnings("unchecked")
-                Map<String, Object> event = objectMapper.readValue(json, Map.class);
+    /**
+     * Called by RabbitTelemetrySubscriber when a telemetry message arrives.
+     * Updates Redis cache and broadcasts to SSE clients.
+     */
+    @Override
+    public void broadcastTelemetry(String robotId, String jsonData) {
+        try {
+            @SuppressWarnings("unchecked")
+            Map<String, Object> event = objectMapper.readValue(jsonData, Map.class);
 
-                @SuppressWarnings("unchecked")
-                Map<String, Object> robotData = (Map<String, Object>) event.get("robot");
-                if (robotData != null) {
-                    String robotId = (String) robotData.get("id");
-
-                    // Update Redis cache
-                    updateRobotCache(robotData);
-
-                    // Broadcast to SSE clients
-                    broadcastTelemetry(robotId, json);
-                }
-            } catch (Exception e) {
-                log.error("Failed to process NATS telemetry: {}", e.getMessage());
+            @SuppressWarnings("unchecked")
+            Map<String, Object> robotData = (Map<String, Object>) event.get("robot");
+            if (robotData != null) {
+                updateRobotCache(robotData);
             }
-        });
+        } catch (Exception e) {
+            log.error("[SSE] Failed to parse telemetry for cache update: {}", e.getMessage());
+        }
 
-        natsDispatcher.subscribe(TELEMETRY_SUBJECT);
-        log.info("[SSE] Subscribed to NATS subject: {}", TELEMETRY_SUBJECT);
+        // Broadcast to SSE clients
+        List<SseEmitter> deadClients = new java.util.ArrayList<>();
+
+        for (SseEmitter client : clients) {
+            try {
+                client.send(SseEmitter.event()
+                        .name("telemetry")
+                        .data(jsonData)
+                        .id(String.valueOf(System.currentTimeMillis())));
+            } catch (Exception e) {
+                deadClients.add(client);
+            }
+        }
+
+        if (!deadClients.isEmpty()) {
+            clients.removeAll(deadClients);
+            log.debug("[SSE] Removed {} dead clients, active: {}", deadClients.size(), clients.size());
+        }
     }
 
     private void updateRobotCache(Map<String, Object> robotData) {
@@ -114,30 +114,8 @@ public class SseTelemetryAdapter implements TelemetryStreamPort {
         }
     }
 
-    @Override
-    public void broadcastTelemetry(String robotId, String jsonData) {
-        List<SseEmitter> deadClients = new java.util.ArrayList<>();
-
-        for (SseEmitter client : clients) {
-            try {
-                client.send(SseEmitter.event()
-                        .name("telemetry")
-                        .data(jsonData)
-                        .id(String.valueOf(System.currentTimeMillis())));
-            } catch (Exception e) {
-                deadClients.add(client);
-            }
-        }
-
-        if (!deadClients.isEmpty()) {
-            clients.removeAll(deadClients);
-            log.debug("[SSE] Removed {} dead clients, active: {}", deadClients.size(), clients.size());
-        }
-    }
-
     /**
      * Create a new SSE emitter for all-robots telemetry stream.
-     * Not part of TelemetryStreamPort — infrastructure-only concern.
      */
     public SseEmitter createEmitter() {
         return createAndRegisterEmitter(null);
@@ -145,7 +123,6 @@ public class SseTelemetryAdapter implements TelemetryStreamPort {
 
     /**
      * Create a new SSE emitter for a specific robot's telemetry stream.
-     * Not part of TelemetryStreamPort — infrastructure-only concern.
      */
     public SseEmitter createEmitterForRobot(String robotId) {
         return createAndRegisterEmitter(robotId);
@@ -186,14 +163,10 @@ public class SseTelemetryAdapter implements TelemetryStreamPort {
 
     @PreDestroy
     public void cleanup() {
-        if (natsDispatcher != null) {
-            natsDispatcher.unsubscribe(TELEMETRY_SUBJECT);
-        }
         clients.forEach(emitter -> {
             try { emitter.complete(); } catch (Exception ignored) {}
         });
         clients.clear();
-        executor.shutdown();
         log.info("[SSE] Adapter shutdown complete");
     }
 

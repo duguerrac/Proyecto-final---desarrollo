@@ -75,25 +75,29 @@ services:
     volumes:
       - mongo_data:/data/db
     healthcheck:
-      test: echo 'db.runCommand("ping").ok' | mongosh --quiet
-      interval: 10s
-      timeout: 5s
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.runCommand({ping:1}).ok"]
+      interval: 15s
+      timeout: 10s
       retries: 5
-      start_period: 20s
+      start_period: 30s
     networks:
       - smartlogistic-net
 
-  nats:
-    image: nats:2-alpine
-    container_name: smartlogistic-nats
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    container_name: smartlogistic-rabbitmq
     restart: unless-stopped
     ports:
-      - "${NATS_PORT:-4222}:4222"
-      - "${NATS_MONITOR_PORT:-8222}:8222"
-      - "${NATS_WS_PORT:-8443}:8443"
+      - "${RABBITMQ_PORT:-5672}:5672"
+      - "${RABBITMQ_MGMT_PORT:-15672}:15672"
     volumes:
-      - ./nats/nats.conf:/etc/nats/nats.conf:ro
-    command: ["-c", "/etc/nats/nats.conf"]
+      - rabbitmq_data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
     networks:
       - smartlogistic-net
 
@@ -107,6 +111,9 @@ services:
       - "${JAEGER_OTLP_GRPC_PORT:-4317}:4317"
     environment:
       COLLECTOR_OTLP_ENABLED: "true"
+      METRICS_STORAGE_TYPE: prometheus
+      PROMETHEUS_SERVER_URL: http://prometheus:9090
+      SPANMETRICS_FLUSH_INTERVAL: "60s"
     networks:
       - smartlogistic-net
 
@@ -119,7 +126,7 @@ services:
     container_name: smartlogistic-nginx
     restart: unless-stopped
     ports:
-      - "${NGINX_PORT:-8080}:80"
+      - "${NGINX_PORT:-8086}:80"
     volumes:
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
     depends_on:
@@ -144,16 +151,17 @@ services:
       SPRING_DATASOURCE_URL: jdbc:postgresql://warehouse-db:5432/${WAREHOUSE_POSTGRES_DB:-warehouse_db}
       SPRING_DATASOURCE_USERNAME: ${WAREHOUSE_POSTGRES_USER:-warehouse}
       SPRING_DATASOURCE_PASSWORD: ${WAREHOUSE_POSTGRES_PASSWORD:-warehouse_pass}
-      NATS_URL: nats://nats:4222
+      SPRING_RABBITMQ_HOST: rabbitmq
+      SPRING_RABBITMQ_PORT: 5672
       ROBOT_STATUS_URL: http://ms-robot-status:8082
       MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE: prometheus,health,info
       MANAGEMENT_TRACING_SAMPLING_PROBABILITY: "1.0"
-      OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4318
+      MANAGEMENT_OTLP_TRACING_ENDPOINT: http://jaeger:4318/v1/traces
     depends_on:
       warehouse-db:
         condition: service_healthy
-      nats:
-        condition: service_started
+      rabbitmq:
+        condition: service_healthy
       ms-robot-status:
         condition: service_started
     networks:
@@ -175,44 +183,47 @@ services:
       SERVER_PORT: 8082
       SPRING_DATA_REDIS_HOST: robot-redis
       SPRING_DATA_REDIS_PORT: 6379
-      NATS_URL: nats://nats:4222
+      SPRING_RABBITMQ_HOST: rabbitmq
+      SPRING_RABBITMQ_PORT: 5672
       MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE: prometheus,health,info
       MANAGEMENT_TRACING_SAMPLING_PROBABILITY: "1.0"
-      OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4318
+      MANAGEMENT_OTLP_TRACING_ENDPOINT: http://jaeger:4318/v1/traces
     depends_on:
       robot-redis:
         condition: service_healthy
-      nats:
-        condition: service_started
+      rabbitmq:
+        condition: service_healthy
     networks:
       - smartlogistic-net
 
   # ─────────────────────────────
-  # Fase D: MS-LogisticsAnalytics (disabled — directory not yet created)
+  # Fase D: MS-LogisticsAnalytics
   # ─────────────────────────────
 
-  # ms-logistics-analytics:
-  #   build:
-  #     context: .
-  #     dockerfile: ms-logistics-analytics/Dockerfile
-  #   container_name: smartlogistic-analytics
-  #   restart: unless-stopped
-  #   ports:
-  #     - "${ANALYTICS_PORT:-8083}:8083"
-  #   environment:
-  #     SERVER_PORT: 8083
-  #     SPRING_DATA_MONGODB_URI: mongodb://analytics-db:27017/${MONGO_DB:-logistics_analytics}
-  #     NATS_URL: nats://nats:4222
-  #     MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE: prometheus,health,info
-  #     MANAGEMENT_TRACING_SAMPLING_PROBABILITY: "1.0"
-  #     OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4318
-  #   depends_on:
-  #     analytics-db:
-  #       condition: service_healthy
-  #     nats:
-  #       condition: service_started
-  #   networks:
-  #     - smartlogistic-net
+  ms-logistics-analytics:
+    build:
+      context: .
+      dockerfile: ms-logistics-analytics/Dockerfile
+    container_name: smartlogistic-analytics
+    restart: unless-stopped
+    ports:
+      - "${ANALYTICS_PORT:-8083}:8083"
+    environment:
+      SERVER_PORT: 8083
+      SPRING_APPLICATION_NAME: ms-logistics-analytics
+      SPRING_DATA_MONGODB_URI: mongodb://analytics-db:27017/${MONGO_DB:-logistics_analytics}
+      SPRING_RABBITMQ_HOST: rabbitmq
+      SPRING_RABBITMQ_PORT: 5672
+      MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE: prometheus,health,info
+      MANAGEMENT_TRACING_SAMPLING_PROBABILITY: "1.0"
+      MANAGEMENT_OTLP_TRACING_ENDPOINT: http://jaeger:4318/v1/traces
+    depends_on:
+      analytics-db:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - smartlogistic-net
 
   # ─────────────────────────────
   # Fase A.5: MS-Identity
@@ -228,13 +239,14 @@ services:
       - "${IDENTITY_PORT:-8084}:8084"
     environment:
       SERVER_PORT: 8084
+      SPRING_APPLICATION_NAME: ms-identity
       SPRING_DATASOURCE_URL: jdbc:postgresql://auth-db:5432/${AUTH_POSTGRES_DB:-auth_db}
       SPRING_DATASOURCE_USERNAME: ${AUTH_POSTGRES_USER:-auth}
       SPRING_DATASOURCE_PASSWORD: ${AUTH_POSTGRES_PASSWORD:-auth_pass}
       JWT_SECRET: ${JWT_SECRET:-smartlogistic-secret-key-change-in-production}
       MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE: prometheus,health,info
       MANAGEMENT_TRACING_SAMPLING_PROBABILITY: "1.0"
-      OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4318
+      MANAGEMENT_OTLP_TRACING_ENDPOINT: http://jaeger:4318/v1/traces
     depends_on:
       auth-db:
         condition: service_healthy
@@ -263,6 +275,7 @@ services:
       - ms-identity
       - ms-warehouse-core
       - ms-robot-status
+      - ms-logistics-analytics
     networks:
       - smartlogistic-net
 
@@ -271,11 +284,11 @@ services:
     container_name: smartlogistic-grafana
     restart: unless-stopped
     ports:
-      - "${GRAFANA_PORT:-3000}:3000"
+      - "${GRAFANA_PORT:-3001}:3000"
     environment:
       GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
-      GF_INSTALL_PLUGINS: ""
+      GF_INSTALL_PLUGINS: "jaeger"
     volumes:
       - ./observability/grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro
       - ./observability/grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro
@@ -304,6 +317,7 @@ volumes:
   warehouse_postgres_data:
   redis_data:
   mongo_data:
+  rabbitmq_data:
   prometheus_data:
   grafana_data:
   loki_data:

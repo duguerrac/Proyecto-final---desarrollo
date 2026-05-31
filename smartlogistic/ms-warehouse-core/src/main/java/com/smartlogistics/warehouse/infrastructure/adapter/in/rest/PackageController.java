@@ -10,11 +10,11 @@ import com.smartlogistics.warehouse.infrastructure.adapter.out.postgres.reposito
 import com.smartlogistics.warehouse.infrastructure.adapter.out.postgres.repository.InventoryItemJpaRepository;
 import com.smartlogistics.warehouse.infrastructure.adapter.out.postgres.repository.SpotItemJpaRepository;
 import com.smartlogistics.warehouse.infrastructure.adapter.out.postgres.repository.SpotJpaRepository;
-import io.nats.client.Connection;
-import io.nats.client.Dispatcher;
-import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.amqp.rabbit.annotation.RabbitListener;
+import org.springframework.amqp.rabbit.core.RabbitTemplate;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -32,84 +32,81 @@ public class PackageController {
     private final InventoryItemJpaRepository itemRepo;
     private final SpotJpaRepository spotRepo;
     private final SpotItemJpaRepository spotItemRepo;
-    private final Connection nats;
+    private final RabbitTemplate rabbitTemplate;
+    private final String exchange;
+
+    private final com.fasterxml.jackson.databind.ObjectMapper objectMapper = new com.fasterxml.jackson.databind.ObjectMapper();
 
     public PackageController(IncomingPackageJpaRepository packageRepo,
                              InventoryItemJpaRepository itemRepo,
                              SpotJpaRepository spotRepo,
                              SpotItemJpaRepository spotItemRepo,
-                             Connection nats) {
+                             RabbitTemplate rabbitTemplate,
+                             @Value("${rabbitmq.exchange:logistics.exchange}") String exchange) {
         this.packageRepo = packageRepo;
         this.itemRepo = itemRepo;
         this.spotRepo = spotRepo;
         this.spotItemRepo = spotItemRepo;
-        this.nats = nats;
+        this.rabbitTemplate = rabbitTemplate;
+        this.exchange = exchange;
     }
 
-    @PostConstruct
-    void subscribeToRobotEvents() {
-        Dispatcher d = nats.createDispatcher(msg -> {});
+    // ─── RabbitMQ Listeners (replacing NATS subscriptions) ───
 
-        // Robot picked up package from reception spot
-        d.subscribe("package.taken", msg -> {
-            String json = new String(msg.getData(), StandardCharsets.UTF_8);
-            log.info("[NATS] package.taken received: {}", json);
-            try {
-                com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
-                var tree = mapper.readTree(json);
-                Long packageId = tree.get("packageId").asLong();
-                String robotId = tree.get("robotId").asText();
+    @RabbitListener(queues = "${rabbitmq.queue.package-taken:package.taken}")
+    public void onPackageTaken(String json) {
+        log.info("[RabbitMQ] package.taken received: {}", json);
+        try {
+            var tree = objectMapper.readTree(json);
+            Long packageId = tree.get("packageId").asLong();
+            String robotId = tree.get("robotId").asText();
 
-                packageRepo.findById(packageId).ifPresent(pkg -> {
-                    pkg.setStatus("IN_TRANSIT");
-                    pkg.setRobotId(robotId);
-                    packageRepo.save(pkg);
-                    log.info("[NATS] Package {} → IN_TRANSIT (robot={})", packageId, robotId);
-                });
-            } catch (Exception e) {
-                log.error("Error processing package.taken", e);
-            }
-        });
-
-        // Robot delivered package to target spot
-        d.subscribe("package.delivered", msg -> {
-            String json = new String(msg.getData(), StandardCharsets.UTF_8);
-            log.info("[NATS] package.delivered received: {}", json);
-            try {
-                com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
-                var tree = mapper.readTree(json);
-                Long packageId = tree.get("packageId").asLong();
-
-                packageRepo.findById(packageId).ifPresent(pkg -> {
-                    // Add quantity to target spot
-                    SpotJpaEntity spot = spotRepo.findByCode(pkg.getTargetSpotCode())
-                            .orElseThrow(() -> new RuntimeException("Spot not found: " + pkg.getTargetSpotCode()));
-
-                    SpotItemJpaEntity spotItem = spotItemRepo
-                            .findBySpotIdAndItemId(spot.getId(), pkg.getItemId())
-                            .orElseGet(() -> {
-                                SpotItemJpaEntity si = new SpotItemJpaEntity();
-                                si.setSpotId(spot.getId());
-                                si.setItemId(pkg.getItemId());
-                                si.setQuantityReserved(0);
-                                return si;
-                            });
-
-                    spotItem.setQuantityAvailable(spotItem.getQuantityAvailable() + pkg.getQuantity());
-                    spotItemRepo.save(spotItem);
-
-                    pkg.setStatus("DELIVERED");
-                    packageRepo.save(pkg);
-                    log.info("[NATS] Package {} → DELIVERED. Added {}x SKU {} to spot {}",
-                            packageId, pkg.getQuantity(), pkg.getSku(), pkg.getTargetSpotCode());
-                });
-            } catch (Exception e) {
-                log.error("Error processing package.delivered", e);
-            }
-        });
-
-        log.info("[NATS] Subscribed to package.taken and package.delivered");
+            packageRepo.findById(packageId).ifPresent(pkg -> {
+                pkg.setStatus("IN_TRANSIT");
+                pkg.setRobotId(robotId);
+                packageRepo.save(pkg);
+                log.info("[RabbitMQ] Package {} → IN_TRANSIT (robot={})", packageId, robotId);
+            });
+        } catch (Exception e) {
+            log.error("Error processing package.taken", e);
+        }
     }
+
+    @RabbitListener(queues = "${rabbitmq.queue.package-delivered:package.delivered}")
+    public void onPackageDelivered(String json) {
+        log.info("[RabbitMQ] package.delivered received: {}", json);
+        try {
+            var tree = objectMapper.readTree(json);
+            Long packageId = tree.get("packageId").asLong();
+
+            packageRepo.findById(packageId).ifPresent(pkg -> {
+                SpotJpaEntity spot = spotRepo.findByCode(pkg.getTargetSpotCode())
+                        .orElseThrow(() -> new RuntimeException("Spot not found: " + pkg.getTargetSpotCode()));
+
+                SpotItemJpaEntity spotItem = spotItemRepo
+                        .findBySpotIdAndItemId(spot.getId(), pkg.getItemId())
+                        .orElseGet(() -> {
+                            SpotItemJpaEntity si = new SpotItemJpaEntity();
+                            si.setSpotId(spot.getId());
+                            si.setItemId(pkg.getItemId());
+                            si.setQuantityReserved(0);
+                            return si;
+                        });
+
+                spotItem.setQuantityAvailable(spotItem.getQuantityAvailable() + pkg.getQuantity());
+                spotItemRepo.save(spotItem);
+
+                pkg.setStatus("DELIVERED");
+                packageRepo.save(pkg);
+                log.info("[RabbitMQ] Package {} → DELIVERED. Added {}x SKU {} to spot {}",
+                        packageId, pkg.getQuantity(), pkg.getSku(), pkg.getTargetSpotCode());
+            });
+        } catch (Exception e) {
+            log.error("Error processing package.delivered", e);
+        }
+    }
+
+    // ─── REST Endpoints ───
 
     @PostMapping("/receive")
     public ResponseEntity<PackageResponse> receivePackage(@RequestBody ReceivePackageRequest req) {
@@ -117,7 +114,7 @@ public class PackageController {
         InventoryItemJpaEntity item = itemRepo.findBySku(req.getSku())
                 .orElseThrow(() -> new RuntimeException("Item not found: " + req.getSku()));
 
-        // 2. Find target spot: spot that already has this item, or first available spot
+        // 2. Find target spot
         String targetSpotCode = findTargetSpot(item.getId());
 
         // 3. Create incoming_package record
@@ -130,13 +127,13 @@ public class PackageController {
         pkg.setTargetSpotCode(targetSpotCode);
         pkg = packageRepo.save(pkg);
 
-        // 4. Publish package.received event via NATS
+        // 4. Publish package.received event via RabbitMQ
         String payload = String.format(
             "{\"packageId\":%d,\"sku\":\"%s\",\"itemId\":%d,\"quantity\":%d,\"receptionSpotCode\":\"%s\",\"targetSpotCode\":\"%s\"}",
             pkg.getId(), pkg.getSku(), pkg.getItemId(), pkg.getQuantity(),
             pkg.getReceptionSpotCode(), pkg.getTargetSpotCode());
-        nats.publish("smartlogistic.package.received", payload.getBytes(StandardCharsets.UTF_8));
-        log.info("[NATS] Published smartlogistic.package.received: {}", payload);
+        rabbitTemplate.convertAndSend(exchange, "package.received", payload);
+        log.info("[RabbitMQ] Published package.received: {}", payload);
 
         return ResponseEntity.ok(toResponse(pkg));
     }
@@ -163,7 +160,6 @@ public class PackageController {
     }
 
     private String findTargetSpot(Long itemId) {
-        // Prefer spot that already has this item
         List<SpotItemJpaEntity> existing = spotItemRepo.findAll().stream()
                 .filter(si -> si.getItemId().equals(itemId))
                 .toList();

@@ -5,10 +5,14 @@ import com.smartlogistics.warehouse.infrastructure.adapter.in.rest.dto.OrderResp
 import com.smartlogistics.warehouse.infrastructure.adapter.out.postgres.entity.OrderLineJpaEntity;
 import com.smartlogistics.warehouse.infrastructure.adapter.out.postgres.entity.WarehouseOrderJpaEntity;
 import com.smartlogistics.warehouse.infrastructure.adapter.out.postgres.repository.WarehouseOrderJpaRepository;
-import io.nats.client.Connection;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.amqp.rabbit.core.RabbitTemplate;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -16,12 +20,18 @@ import java.util.stream.Collectors;
 @RequestMapping("/api/orders")
 public class OrderController {
 
-    private final WarehouseOrderJpaRepository orderRepo;
-    private final Connection nats;
+    private static final Logger log = LoggerFactory.getLogger(OrderController.class);
 
-    public OrderController(WarehouseOrderJpaRepository orderRepo, Connection nats) {
+    private final WarehouseOrderJpaRepository orderRepo;
+    private final RabbitTemplate rabbitTemplate;
+    private final String exchange;
+
+    public OrderController(WarehouseOrderJpaRepository orderRepo,
+                           RabbitTemplate rabbitTemplate,
+                           @Value("${rabbitmq.exchange:logistics.exchange}") String exchange) {
         this.orderRepo = orderRepo;
-        this.nats = nats;
+        this.rabbitTemplate = rabbitTemplate;
+        this.exchange = exchange;
     }
 
     @PostMapping
@@ -39,9 +49,10 @@ public class OrderController {
 
         order = orderRepo.save(order);
 
-        // Publish order.created event via NATS
+        // Publish order.created event via RabbitMQ
         String payload = buildOrderCreatedPayload(order);
-        nats.publish("order.created", payload.getBytes());
+        rabbitTemplate.convertAndSend(exchange, "order.created", payload);
+        log.info("[RabbitMQ] Published order.created: {}", payload);
 
         return ResponseEntity.ok(toResponse(order));
     }
@@ -80,11 +91,12 @@ public class OrderController {
             }
             order = orderRepo.save(order);
 
-            // Publish status change event
+            // Publish status change event via RabbitMQ
             String event = String.format(
                 "{\"orderId\":%d,\"status\":\"%s\",\"robotId\":\"%s\"}",
                 order.getId(), order.getStatus(), order.getRobotId() != null ? order.getRobotId() : "");
-            nats.publish("order.status_changed", event.getBytes());
+            rabbitTemplate.convertAndSend(exchange, "order.status_changed", event);
+            log.info("[RabbitMQ] Published order.status_changed: {}", event);
 
             return ResponseEntity.ok(toResponse(order));
         }).orElse(ResponseEntity.notFound().build());
