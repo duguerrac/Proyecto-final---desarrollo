@@ -109,8 +109,12 @@ services:
       - "${JAEGER_UI_PORT:-16686}:16686"
       - "${JAEGER_OTLP_HTTP_PORT:-4318}:4318"
       - "${JAEGER_OTLP_GRPC_PORT:-4317}:4317"
+
     environment:
       COLLECTOR_OTLP_ENABLED: "true"
+      METRICS_STORAGE_TYPE: prometheus
+      PROMETHEUS_SERVER_URL: http://prometheus:9090
+      SPANMETRICS_FLUSH_INTERVAL: "60s"
     networks:
       - smartlogistic-net
 
@@ -281,7 +285,7 @@ services:
     environment:
       GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
-      GF_INSTALL_PLUGINS: ""
+      GF_INSTALL_PLUGINS: "jaeger"
     volumes:
       - ./observability/grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro
       - ./observability/grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro

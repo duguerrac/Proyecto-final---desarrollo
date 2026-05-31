@@ -1,49 +1,246 @@
 {
-  "title": "SmartLogistics Overview",
+  "title": "SmartLogistics - Global Overview",
   "uid": "smartlogistics-overview",
   "schemaVersion": 39,
-  "version": 1,
+  "version": 2,
   "timezone": "browser",
+  "editable": true,
   "panels": [
     {
-      "title": "HTTP Request Rate",
-      "type": "graph",
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
-      "targets": [
-        { "expr": "rate(http_server_requests_seconds_count[1m])", "legendFormat": "{{service}}" }
-      ]
-    },
-    {
-      "title": "HTTP Latency p99",
-      "type": "graph",
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
-      "targets": [
-        { "expr": "histogram_quantile(0.99, rate(http_server_requests_seconds_bucket[1m]))", "legendFormat": "{{service}}" }
-      ]
-    },
-    {
       "title": "Service Health",
+      "type": "row",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 },
+      "collapse": false
+    },
+    {
+      "id": 1,
+      "title": "Identity",
       "type": "stat",
-      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 8 },
-      "targets": [
-        { "expr": "up", "legendFormat": "{{service}}" }
-      ]
+      "gridPos": { "h": 4, "w": 3, "x": 0, "y": 1 },
+      "targets": [{ "expr": "up{service=\"ms-identity\"}", "legendFormat": "" }],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "green", "value": 1 }] },
+          "color": { "mode": "thresholds" },
+          "unit": "none"
+        },
+        "overrides": []
+      },
+      "options": { "colorMode": "background", "graphMode": "none", "textMode": "auto" }
     },
     {
-      "title": "JVM Memory Usage",
-      "type": "graph",
-      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 8 },
-      "targets": [
-        { "expr": "sum(jvm_memory_used_bytes{area=\"heap\"}) by (service)", "legendFormat": "{{service}}" }
-      ]
+      "id": 2,
+      "title": "Warehouse",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 3, "x": 3, "y": 1 },
+      "targets": [{ "expr": "up{service=\"ms-warehouse-core\"}", "legendFormat": "" }],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "green", "value": 1 }] },
+          "color": { "mode": "thresholds" }
+        }
+      },
+      "options": { "colorMode": "background", "graphMode": "none", "textMode": "auto" }
     },
     {
+      "id": 3,
+      "title": "Robot Status",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 3, "x": 6, "y": 1 },
+      "targets": [{ "expr": "up{service=\"ms-robot-status\"}", "legendFormat": "" }],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "green", "value": 1 }] },
+          "color": { "mode": "thresholds" }
+        }
+      },
+      "options": { "colorMode": "background", "graphMode": "none", "textMode": "auto" }
+    },
+    {
+      "id": 4,
+      "title": "Analytics",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 3, "x": 9, "y": 1 },
+      "targets": [{ "expr": "up{service=\"ms-logistics-analytics\"}", "legendFormat": "" }],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "green", "value": 1 }] },
+          "color": { "mode": "thresholds" }
+        }
+      },
+      "options": { "colorMode": "background", "graphMode": "none", "textMode": "auto" }
+    },
+    {
+      "id": 5,
+      "title": "Uptime (hours)",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 1 },
+      "targets": [{ "expr": "process_uptime_seconds{service=~\"ms-.*\"} / 3600", "legendFormat": "{{service}}" }],
+      "fieldConfig": {
+        "defaults": { "unit": "none", "decimals": 1 }
+      },
+      "options": { "colorMode": "value", "graphMode": "none", "textMode": "auto" }
+    },
+    {
+      "id": 6,
+      "title": "HTTP Request Rate (per sec)",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 1 },
+      "targets": [{ "expr": "sum(rate(http_server_requests_seconds_count{service=~\"ms-.*\"}[5m]))", "legendFormat": "total" }],
+      "fieldConfig": {
+        "defaults": { "unit": "reqps", "decimals": 1 }
+      },
+      "options": { "colorMode": "value", "graphMode": "none", "textMode": "auto" }
+    },
+    {
+      "title": "HTTP Performance",
+      "type": "row",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 5 },
+      "collapse": false
+    },
+    {
+      "id": 7,
+      "title": "Request Rate by Service",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 6 },
+      "targets": [{ "expr": "rate(http_server_requests_seconds_count{service=~\"ms-.*\"}[5m])", "legendFormat": "{{service}}" }],
+      "fieldConfig": {
+        "defaults": { "unit": "reqps", "custom": { "showPoints": "never" } }
+      }
+    },
+    {
+      "id": 8,
+      "title": "Error Rate (5xx / sec)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 6 },
+      "targets": [{ "expr": "rate(http_server_requests_seconds_count{service=~\"ms-.*\",status=~\"5..\"}[5m])", "legendFormat": "{{service}}" }],
+      "fieldConfig": {
+        "defaults": { "unit": "reqps", "custom": { "showPoints": "never" } }
+      }
+    },
+    {
+      "id": 9,
+      "title": "P95 Latency (ms)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 14 },
+      "targets": [{ "expr": "histogram_quantile(0.95, sum(rate(http_server_requests_seconds_bucket{service=~\"ms-.*\"}[5m])) by (le, service))", "legendFormat": "{{service}}" }],
+      "fieldConfig": {
+        "defaults": { "unit": "s", "custom": { "showPoints": "never" } }
+      }
+    },
+    {
+      "id": 10,
+      "title": "P99 Latency (ms)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 14 },
+      "targets": [{ "expr": "histogram_quantile(0.99, sum(rate(http_server_requests_seconds_bucket{service=~\"ms-.*\"}[5m])) by (le, service))", "legendFormat": "{{service}}" }],
+      "fieldConfig": {
+        "defaults": { "unit": "s", "custom": { "showPoints": "never" } }
+      }
+    },
+    {
+      "title": "JVM & Resources",
+      "type": "row",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 22 },
+      "collapse": true
+    },
+    {
+      "id": 11,
+      "title": "Heap Memory Used",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 23 },
+      "targets": [{ "expr": "sum(jvm_memory_used_bytes{service=~\"ms-.*\",area=\"heap\"}) by (service)", "legendFormat": "{{service}}" }],
+      "fieldConfig": {
+        "defaults": { "unit": "bytes", "custom": { "showPoints": "never" } }
+      }
+    },
+    {
+      "id": 12,
       "title": "CPU Usage",
-      "type": "graph",
-      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 8 },
-      "targets": [
-        { "expr": "rate(process_cpu_usage[1m])", "legendFormat": "{{service}}" }
-      ]
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 23 },
+      "targets": [{ "expr": "rate(process_cpu_usage{service=~\"ms-.*\"}[1m])", "legendFormat": "{{service}}" }],
+      "fieldConfig": {
+        "defaults": { "unit": "percentunit", "custom": { "showPoints": "never" }, "max": 1 }
+      }
+    },
+    {
+      "id": 13,
+      "title": "GC Pause Rate",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 23 },
+      "targets": [{ "expr": "rate(jvm_gc_pause_seconds_count{service=~\"ms-.*\"}[5m])", "legendFormat": "{{service}}" }],
+      "fieldConfig": {
+        "defaults": { "unit": "ops", "custom": { "showPoints": "never" } }
+      }
+    },
+    {
+      "title": "Infrastructure",
+      "type": "row",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 31 },
+      "collapse": true
+    },
+    {
+      "id": 14,
+      "title": "DB Connections Active (HikariCP)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 32 },
+      "targets": [{ "expr": "hikaricp_connections_active{service=~\"ms-.*\"}", "legendFormat": "{{service}}" }],
+      "fieldConfig": { "defaults": { "custom": { "showPoints": "never" } } }
+    },
+    {
+      "id": 15,
+      "title": "DB Connections Pending",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 32 },
+      "targets": [{ "expr": "hikaricp_connections_pending{service=~\"ms-.*\"}", "legendFormat": "{{service}}" }],
+      "fieldConfig": { "defaults": { "custom": { "showPoints": "never" } } }
+    },
+    {
+      "id": 16,
+      "title": "Threads Live",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 32 },
+      "targets": [{ "expr": "jvm_threads_live_threads{service=~\"ms-.*\"}", "legendFormat": "{{service}}" }],
+      "fieldConfig": { "defaults": { "custom": { "showPoints": "never" } } }
+    },
+    {
+      "title": "Logs (Loki)",
+      "type": "row",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 40 },
+      "collapse": true
+    },
+    {
+      "id": 17,
+      "title": "Recent Logs - Errors",
+      "type": "logs",
+      "gridPos": { "h": 12, "w": 24, "x": 0, "y": 41 },
+      "datasource": "Loki",
+      "targets": [{ "expr": "{service_name=~\"ms-.+\"} |= \"ERROR\"", "legendFormat": "" }],
+      "options": { "showTime": true, "showLabels": true, "wrapLogMessage": true }
     }
-  ]
+  ],
+  "links": [
+    { "title": "Jaeger UI", "type": "link", "url": "http://localhost:16686/search", "targetBlank": true },
+    { "title": "Prometheus", "type": "link", "url": "http://localhost:9090", "targetBlank": true },
+    { "title": "Loki Explore", "type": "link", "url": "http://localhost:3001/explore?orgId=1", "targetBlank": true },
+    { "title": "MS Identity", "type": "dashboards", "targetBlank": true },
+    { "title": "MS Warehouse", "type": "dashboards", "targetBlank": true },
+    { "title": "MS Robot", "type": "dashboards", "targetBlank": true },
+    { "title": "MS Analytics", "type": "dashboards", "targetBlank": true }
+  ],
+  "templating": {
+    "list": [
+      {
+        "name": "service",
+        "type": "query",
+        "query": "label_values(up{service=~\"ms-.*\"}, service)",
+        "refresh": 1,
+        "includeAll": true,
+        "multi": true,
+        "allValue": "ms-.*",
+        "sort": 1
+      }
+    ]
+  }
 }

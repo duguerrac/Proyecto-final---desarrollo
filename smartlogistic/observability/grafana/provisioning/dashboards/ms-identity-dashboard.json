@@ -1,0 +1,242 @@
+{
+  "title": "SmartLogistics - Identity",
+  "uid": "ms-identity",
+  "schemaVersion": 39,
+  "version": 1,
+  "timezone": "browser",
+  "editable": true,
+  "panels": [
+    {
+      "title": "Health & KPIs",
+      "type": "row",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 },
+      "collapse": false
+    },
+    {
+      "id": 1,
+      "title": "Status",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 4, "x": 0, "y": 1 },
+      "targets": [{ "expr": "up{service=\"ms-identity\"}", "legendFormat": "" }],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "green", "value": 1 }] },
+          "color": { "mode": "thresholds" }
+        }
+      },
+      "options": { "colorMode": "background", "graphMode": "none", "textMode": "auto" }
+    },
+    {
+      "id": 2,
+      "title": "Uptime (hours)",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 4, "x": 4, "y": 1 },
+      "targets": [{ "expr": "process_uptime_seconds{service=\"ms-identity\"} / 3600", "legendFormat": "" }],
+      "fieldConfig": { "defaults": { "unit": "none", "decimals": 1 } },
+      "options": { "colorMode": "value", "graphMode": "none", "textMode": "auto" }
+    },
+    {
+      "id": 3,
+      "title": "Request Rate (/sec)",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 4, "x": 8, "y": 1 },
+      "targets": [{ "expr": "sum(rate(http_server_requests_seconds_count{service=\"ms-identity\"}[5m]))", "legendFormat": "" }],
+      "fieldConfig": { "defaults": { "unit": "reqps", "decimals": 1 } },
+      "options": { "colorMode": "value", "graphMode": "none", "textMode": "auto" }
+    },
+    {
+      "id": 4,
+      "title": "Error Rate (/sec)",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 4, "x": 12, "y": 1 },
+      "targets": [{ "expr": "sum(rate(http_server_requests_seconds_count{service=\"ms-identity\",status=~\"5..\"}[5m]))", "legendFormat": "" }],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 0.1 }, { "color": "red", "value": 1 }] },
+          "color": { "mode": "thresholds" }
+        }
+      },
+      "options": { "colorMode": "value", "graphMode": "none", "textMode": "auto" }
+    },
+    {
+      "id": 5,
+      "title": "P95 Latency (ms)",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 4, "x": 16, "y": 1 },
+      "targets": [{ "expr": "histogram_quantile(0.95, sum(rate(http_server_requests_seconds_bucket{service=\"ms-identity\"}[5m])) by (le))", "legendFormat": "" }],
+      "fieldConfig": { "defaults": { "unit": "s", "decimals": 3 } },
+      "options": { "colorMode": "value", "graphMode": "none", "textMode": "auto" }
+    },
+    {
+      "id": 6,
+      "title": "Active Users (JWT issued)",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 4, "x": 20, "y": 1 },
+      "targets": [{ "expr": "sum(http_server_requests_seconds_count{service=\"ms-identity\",uri=\"/api/auth/login\"})", "legendFormat": "" }],
+      "fieldConfig": { "defaults": { "unit": "none" } },
+      "options": { "colorMode": "value", "graphMode": "none", "textMode": "auto" }
+    },
+    {
+      "title": "HTTP Details",
+      "type": "row",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 5 },
+      "collapse": false
+    },
+    {
+      "id": 7,
+      "title": "Request Rate by Endpoint",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 6 },
+      "targets": [{ "expr": "rate(http_server_requests_seconds_count{service=\"ms-identity\"}[5m])", "legendFormat": "{{method}} {{uri}}" }],
+      "fieldConfig": { "defaults": { "unit": "reqps", "custom": { "showPoints": "never" } } }
+    },
+    {
+      "id": 8,
+      "title": "HTTP Status Code Breakdown",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 6 },
+      "targets": [{ "expr": "rate(http_server_requests_seconds_count{service=\"ms-identity\"}[5m])", "legendFormat": "{{status}}" }],
+      "fieldConfig": { "defaults": { "unit": "reqps", "custom": { "showPoints": "never" } } }
+    },
+    {
+      "id": 9,
+      "title": "Latency Distribution (P50, P95, P99)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 14 },
+      "targets": [
+        { "expr": "histogram_quantile(0.50, sum(rate(http_server_requests_seconds_bucket{service=\"ms-identity\"}[5m])) by (le))", "legendFormat": "p50" },
+        { "expr": "histogram_quantile(0.95, sum(rate(http_server_requests_seconds_bucket{service=\"ms-identity\"}[5m])) by (le))", "legendFormat": "p95" },
+        { "expr": "histogram_quantile(0.99, sum(rate(http_server_requests_seconds_bucket{service=\"ms-identity\"}[5m])) by (le))", "legendFormat": "p99" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "s", "custom": { "showPoints": "never" } } }
+    },
+    {
+      "id": 10,
+      "title": "HTTP Outcome (Success vs Error)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 14 },
+      "targets": [{ "expr": "rate(http_server_requests_seconds_count{service=\"ms-identity\"}[5m])", "legendFormat": "{{outcome}}" }],
+      "fieldConfig": { "defaults": { "unit": "reqps", "custom": { "showPoints": "never" } } }
+    },
+    {
+      "title": "JVM",
+      "type": "row",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 22 },
+      "collapse": true
+    },
+    {
+      "id": 11,
+      "title": "Heap Memory",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 23 },
+      "targets": [
+        { "expr": "jvm_memory_used_bytes{service=\"ms-identity\",area=\"heap\"}", "legendFormat": "used" },
+        { "expr": "jvm_memory_max_bytes{service=\"ms-identity\",area=\"heap\"}", "legendFormat": "max" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "bytes", "custom": { "showPoints": "never" } } }
+    },
+    {
+      "id": 12,
+      "title": "Non-Heap Memory",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 23 },
+      "targets": [{ "expr": "jvm_memory_used_bytes{service=\"ms-identity\",area=\"nonheap\"}", "legendFormat": "{{id}}" }],
+      "fieldConfig": { "defaults": { "unit": "bytes", "custom": { "showPoints": "never" } } }
+    },
+    {
+      "id": 13,
+      "title": "GC Pause Duration",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 23 },
+      "targets": [{ "expr": "rate(jvm_gc_pause_seconds_sum{service=\"ms-identity\"}[5m])", "legendFormat": "{{gc}}" }],
+      "fieldConfig": { "defaults": { "unit": "s", "custom": { "showPoints": "never" } } }
+    },
+    {
+      "id": 14,
+      "title": "CPU Usage",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 31 },
+      "targets": [
+        { "expr": "process_cpu_usage{service=\"ms-identity\"}", "legendFormat": "process" },
+        { "expr": "system_cpu_usage{service=\"ms-identity\"}", "legendFormat": "system" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "percentunit", "custom": { "showPoints": "never" }, "max": 1 } }
+    },
+    {
+      "id": 15,
+      "title": "Threads",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 31 },
+      "targets": [
+        { "expr": "jvm_threads_live_threads{service=\"ms-identity\"}", "legendFormat": "live" },
+        { "expr": "jvm_threads_daemon_threads{service=\"ms-identity\"}", "legendFormat": "daemon" }
+      ],
+      "fieldConfig": { "defaults": { "custom": { "showPoints": "never" } } }
+    },
+    {
+      "id": 16,
+      "title": "Log Events",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 31 },
+      "targets": [{ "expr": "rate(logback_events_total{service=\"ms-identity\"}[5m])", "legendFormat": "{{level}}" }],
+      "fieldConfig": { "defaults": { "unit": "ops", "custom": { "showPoints": "never" } } }
+    },
+    {
+      "title": "DB Connection Pool (HikariCP - PostgreSQL)",
+      "type": "row",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 39 },
+      "collapse": true
+    },
+    {
+      "id": 17,
+      "title": "Active / Idle Connections",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 40 },
+      "targets": [
+        { "expr": "hikaricp_connections_active{service=\"ms-identity\"}", "legendFormat": "active" },
+        { "expr": "hikaricp_connections_idle{service=\"ms-identity\"}", "legendFormat": "idle" }
+      ],
+      "fieldConfig": { "defaults": { "custom": { "showPoints": "never" } } }
+    },
+    {
+      "id": 18,
+      "title": "Pending / Max Connections",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 40 },
+      "targets": [
+        { "expr": "hikaricp_connections_pending{service=\"ms-identity\"}", "legendFormat": "pending" },
+        { "expr": "hikaricp_connections_max{service=\"ms-identity\"}", "legendFormat": "max" }
+      ],
+      "fieldConfig": { "defaults": { "custom": { "showPoints": "never" } } }
+    },
+    {
+      "id": 19,
+      "title": "Connection Timeout Rate",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 40 },
+      "targets": [{ "expr": "rate(hikaricp_connections_timeout_total{service=\"ms-identity\"}[5m])", "legendFormat": "timeouts" }],
+      "fieldConfig": { "defaults": { "unit": "ops", "custom": { "showPoints": "never" } } }
+    },
+    {
+      "title": "Logs (Loki)",
+      "type": "row",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 48 },
+      "collapse": true
+    },
+    {
+      "id": 20,
+      "title": "Recent Logs",
+      "type": "logs",
+      "gridPos": { "h": 12, "w": 24, "x": 0, "y": 49 },
+      "datasource": "Loki",
+      "targets": [{ "expr": "{service_name=\"ms-identity\"}", "legendFormat": "" }],
+      "options": { "showTime": true, "showLabels": true, "wrapLogMessage": true }
+    }
+  ],
+  "links": [
+    { "title": "Global Dashboard", "type": "dashboards", "targetBlank": true },
+    { "title": "Jaeger (ms-identity)", "type": "link", "url": "http://localhost:16686/search?service=ms-identity", "targetBlank": true },
+    { "title": "Loki Explore", "type": "link", "url": "http://localhost:3001/explore?orgId=1&left=%5B%22now-1h%22,%22now%22,%22Loki%22,%7B%22expr%22:%22%7Bservice_name%3D%5C%22ms-identity%5C%22%7D%22%7D%5D", "targetBlank": true }
+  ]
+}
