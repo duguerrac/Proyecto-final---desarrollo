@@ -18,7 +18,7 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnArrivalAtTarget, AWarehouseRobot
  * - Drains battery based on distance traveled
  * - Auto-charges at charging stations
  * - Carries items with capacity tracking
- * - Publishes telemetry via RobotManager → NATS
+ * - Publishes telemetry via RobotManager → HTTP REST API
  */
 UCLASS(BlueprintType, Category = "SmartLogistics")
 class AWarehouseRobot : public AActor

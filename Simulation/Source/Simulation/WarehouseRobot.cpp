@@ -480,7 +480,7 @@ void AWarehouseRobot::UpdateOperationalMode()
 }
 
 // ═══════════════════════════════════════════════════════════════════
-//  EXTERNAL UPDATE (from NATS events)
+//  EXTERNAL UPDATE (from HTTP REST events)
 // ═══════════════════════════════════════════════════════════════════
 
 void AWarehouseRobot::SetMission(const FRobotMissionData& Mission)
