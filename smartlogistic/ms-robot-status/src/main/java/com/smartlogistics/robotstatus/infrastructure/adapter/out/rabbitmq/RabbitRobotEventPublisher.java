@@ -72,8 +72,7 @@ public class RabbitRobotEventPublisher implements RobotEventPort {
         map.put("batteryLevel", robot.getBatteryLevel());
         map.put("available", robot.isAvailable());
         map.put("currentLocation", robot.getCurrentLocation());
-        map.put("operationalMode", robot.getOperationalMode() != null
-                ? robot.getOperationalMode().name() : null);
+        map.put("operationalMode", robot.getOperationalMode());
         map.put("assignable", robot.isAssignable());
         return map;
     }
