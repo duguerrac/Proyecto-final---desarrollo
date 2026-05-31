@@ -7,9 +7,9 @@ import org.springframework.stereotype.Component;
 @Component
 public class OutboxPublisherScheduler {
     private final OutboxEventRepositoryPort outboxRepository;
-    private final NatsRouteEventPublisher publisher;
+    private final RabbitRouteEventPublisher publisher;
 
-    public OutboxPublisherScheduler(OutboxEventRepositoryPort outboxRepository, NatsRouteEventPublisher publisher) {
+    public OutboxPublisherScheduler(OutboxEventRepositoryPort outboxRepository, RabbitRouteEventPublisher publisher) {
         this.outboxRepository = outboxRepository;
         this.publisher = publisher;
     }

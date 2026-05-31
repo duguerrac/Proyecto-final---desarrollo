@@ -1,13 +1,16 @@
 package com.smartlogistics.analytics.infrastructure.adapter.in.amqp;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.smartlogistics.analytics.application.port.in.ProcessRouteEventUseCase;
 import com.smartlogistics.analytics.domain.exception.EventProcessingException;
+import com.smartlogistics.analytics.domain.model.PathPoint;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
-import java.time.Instant;
+import java.math.BigDecimal;
 import java.util.List;
+import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
@@ -22,7 +25,7 @@ class RouteEventConsumerTest {
     void setUp() {
         useCase = mock(ProcessRouteEventUseCase.class);
         objectMapper = new ObjectMapper();
-        objectMapper.findAndRegisterModules();
+        objectMapper.registerModule(new JavaTimeModule());
         consumer = new RouteEventConsumer(useCase, objectMapper);
     }
 
@@ -30,25 +33,29 @@ class RouteEventConsumerTest {
     void onRouteCompleted_ShouldDeserializeAndProcess() throws Exception {
         String json = """
                 {
-                    "eventId": "evt-001",
-                    "orderId": "ORD-001",
+                    "eventId": "%s",
+                    "eventType": "route.completed",
+                    "occurredAt": "2026-05-26T13:00:00Z",
+                    "orderId": 1,
                     "robotId": "RBT-01",
-                    "path": ["A1", "B2"],
-                    "distance": 150.0,
-                    "duration": 45,
-                    "timestamp": "2026-05-26T13:00:00Z"
+                    "warehouseId": "WH-01",
+                    "fragileItems": true,
+                    "totalDistanceMeters": 150.0,
+                    "durationSeconds": 45,
+                    "path": [{"rootPointId": "RP-START", "x": 0.0, "y": 0.0}]
                 }
-                """;
+                """.formatted(UUID.randomUUID().toString());
 
         consumer.onRouteCompleted(json);
 
         verify(useCase, times(1)).process(argThat(event ->
-                "evt-001".equals(event.getEventId()) &&
-                "ORD-001".equals(event.getOrderId()) &&
+                "route.completed".equals(event.getEventType()) &&
                 "RBT-01".equals(event.getRobotId()) &&
-                event.getPath().containsAll(List.of("A1", "B2")) &&
+                "WH-01".equals(event.getWarehouseId()) &&
+                event.isFragileItems() &&
                 event.getDistance() == 150.0 &&
-                event.getDuration() == 45
+                event.getDuration() == 45 &&
+                event.getPath().size() == 1
         ));
     }
 
@@ -56,15 +63,18 @@ class RouteEventConsumerTest {
     void onRouteCompleted_EmptyPath_ShouldProcess() {
         String json = """
                 {
-                    "eventId": "evt-002",
-                    "orderId": "ORD-002",
+                    "eventId": "%s",
+                    "eventType": "route.completed",
+                    "occurredAt": "2026-05-26T14:00:00Z",
+                    "orderId": 2,
                     "robotId": "RBT-02",
-                    "path": [],
-                    "distance": 0.0,
-                    "duration": 0,
-                    "timestamp": "2026-05-26T14:00:00Z"
+                    "warehouseId": "WH-01",
+                    "fragileItems": false,
+                    "totalDistanceMeters": 0.0,
+                    "durationSeconds": 0,
+                    "path": []
                 }
-                """;
+                """.formatted(UUID.randomUUID().toString());
 
         consumer.onRouteCompleted(json);
 
@@ -77,34 +87,42 @@ class RouteEventConsumerTest {
     void onRouteCompleted_NullPath_ShouldDefaultToEmpty() {
         String json = """
                 {
-                    "eventId": "evt-003",
-                    "orderId": "ORD-003",
+                    "eventId": "%s",
+                    "eventType": "route.completed",
+                    "occurredAt": "2026-05-26T15:00:00Z",
+                    "orderId": 3,
                     "robotId": "RBT-03",
-                    "distance": 10.0,
-                    "duration": 5,
-                    "timestamp": "2026-05-26T15:00:00Z"
+                    "warehouseId": "WH-01",
+                    "fragileItems": false,
+                    "totalDistanceMeters": 10.0,
+                    "durationSeconds": 5
                 }
-                """;
+                """.formatted(UUID.randomUUID().toString());
 
         consumer.onRouteCompleted(json);
 
         verify(useCase, times(1)).process(argThat(event ->
-                event.getPath() != null && event.getPath().isEmpty()
+                event.getPath() != null && event.getPath().isEmpty() &&
+                event.getDistance() == 10.0 &&
+                event.getDuration() == 5
         ));
     }
 
     @Test
-    void onRouteCompleted_NullTimestamp_ShouldUseNow() {
+    void onRouteCompleted_NullOccurredAt_ShouldUseNow() {
         String json = """
                 {
-                    "eventId": "evt-004",
-                    "orderId": "ORD-004",
+                    "eventId": "%s",
+                    "eventType": "route.completed",
+                    "orderId": 4,
                     "robotId": "RBT-04",
-                    "path": ["A1"],
-                    "distance": 5.0,
-                    "duration": 2
+                    "warehouseId": "WH-01",
+                    "fragileItems": false,
+                    "totalDistanceMeters": 5.0,
+                    "durationSeconds": 2,
+                    "path": [{"rootPointId": "RP-A1", "x": 1.0, "y": 2.0}]
                 }
-                """;
+                """.formatted(UUID.randomUUID().toString());
 
         consumer.onRouteCompleted(json);
 
@@ -137,15 +155,18 @@ class RouteEventConsumerTest {
     void onRouteCompleted_UseCaseThrows_ShouldPropagate() {
         String json = """
                 {
-                    "eventId": "evt-005",
-                    "orderId": "ORD-005",
+                    "eventId": "%s",
+                    "eventType": "route.completed",
+                    "occurredAt": "2026-05-26T16:00:00Z",
+                    "orderId": 5,
                     "robotId": "RBT-05",
-                    "path": ["A1"],
-                    "distance": 5.0,
-                    "duration": 2,
-                    "timestamp": "2026-05-26T16:00:00Z"
+                    "warehouseId": "WH-01",
+                    "fragileItems": false,
+                    "totalDistanceMeters": 5.0,
+                    "durationSeconds": 2,
+                    "path": [{"rootPointId": "RP-A1", "x": 1.0, "y": 2.0}]
                 }
-                """;
+                """.formatted(UUID.randomUUID().toString());
         doThrow(new RuntimeException("Processing error"))
                 .when(useCase).process(any());
 

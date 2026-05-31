@@ -1,10 +1,12 @@
 package com.smartlogistics.analytics.infrastructure.adapter.out.mongodb;
 
+import com.smartlogistics.analytics.domain.model.PathPoint;
 import com.smartlogistics.analytics.domain.model.RouteEvent;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.data.mongodb.core.MongoTemplate;
 
+import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
 
@@ -24,8 +26,9 @@ class MongoRouteEventAdapterTest {
     @Test
     void save_ShouldMapAndPersist() {
         Instant now = Instant.now();
-        RouteEvent event = new RouteEvent("evt-001", "ORD-001", "RBT-01",
-                List.of("A1", "B2"), 150.0, 45, now);
+        List<PathPoint> path = List.of(new PathPoint("RP-A1", BigDecimal.ONE, BigDecimal.valueOf(2)));
+        RouteEvent event = new RouteEvent("evt-001", "route.completed", "ORD-001", "RBT-01",
+                "WH-01", true, path, 150.0, 45, now);
 
         adapter.save(event);
 
@@ -33,9 +36,12 @@ class MongoRouteEventAdapterTest {
             if (!(doc instanceof RouteEventDocument)) return false;
             RouteEventDocument d = (RouteEventDocument) doc;
             return "evt-001".equals(d.getEventId()) &&
+                    "route.completed".equals(d.getEventType()) &&
                     "ORD-001".equals(d.getOrderId()) &&
                     "RBT-01".equals(d.getRobotId()) &&
-                    d.getPath().containsAll(List.of("A1", "B2")) &&
+                    "WH-01".equals(d.getWarehouseId()) &&
+                    d.isFragileItems() &&
+                    d.getPath().equals(path) &&
                     d.getDistance() == 150.0 &&
                     d.getDuration() == 45 &&
                     now.equals(d.getTimestamp());
@@ -44,8 +50,8 @@ class MongoRouteEventAdapterTest {
 
     @Test
     void save_WithEmptyPath_ShouldMapCorrectly() {
-        RouteEvent event = new RouteEvent("evt-002", "ORD-002", "RBT-02",
-                List.of(), 0.0, 0, Instant.now());
+        RouteEvent event = new RouteEvent("evt-002", "route.completed", "ORD-002", "RBT-02",
+                "WH-01", false, List.of(), 0.0, 0, Instant.now());
 
         adapter.save(event);
 
@@ -60,8 +66,9 @@ class MongoRouteEventAdapterTest {
 
     @Test
     void save_WithNullTimestamp_ShouldMapCorrectly() {
-        RouteEvent event = new RouteEvent("evt-003", "ORD-003", "RBT-03",
-                List.of("A1"), 10.0, 5, null);
+        RouteEvent event = new RouteEvent("evt-003", "route.completed", "ORD-003", "RBT-03",
+                "WH-01", false, List.of(new PathPoint("RP-A1", BigDecimal.ONE, BigDecimal.valueOf(2))),
+                10.0, 5, null);
 
         adapter.save(event);
 
@@ -74,8 +81,9 @@ class MongoRouteEventAdapterTest {
 
     @Test
     void save_MongoThrows_ShouldPropagate() {
-        RouteEvent event = new RouteEvent("evt-004", "ORD-004", "RBT-04",
-                List.of("A1"), 5.0, 2, Instant.now());
+        RouteEvent event = new RouteEvent("evt-004", "route.completed", "ORD-004", "RBT-04",
+                "WH-01", false, List.of(new PathPoint("RP-A1", BigDecimal.ONE, BigDecimal.valueOf(2))),
+                5.0, 2, Instant.now());
         doThrow(new RuntimeException("Mongo error"))
                 .when(mongoTemplate).save(any(RouteEventDocument.class), eq("route_events"));
 

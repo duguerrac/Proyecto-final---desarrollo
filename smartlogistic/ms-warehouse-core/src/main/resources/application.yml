@@ -20,14 +20,13 @@ spring:
     enabled: true
     baseline-on-migrate: true
     baseline-version: 0
+  rabbitmq:
+    host: ${SPRING_RABBITMQ_HOST:localhost}
+    port: ${SPRING_RABBITMQ_PORT:5672}
 
 robot-status:
   base-url: ${ROBOT_STATUS_URL:http://localhost:8082}
   timeout-ms: ${ROBOT_STATUS_TIMEOUT_MS:2000}
-
-nats:
-  url: ${NATS_URL:nats://localhost:4222}
-  subject: route.completed
 
 warehouse:
   id: ${WAREHOUSE_ID:WH-01}
@@ -43,3 +42,11 @@ management:
     health:
       probes:
         enabled: true
+  tracing:
+    sampling:
+      probability: 1.0
+
+otel:
+  exporter:
+    otlp:
+      endpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT:http://localhost:4318}

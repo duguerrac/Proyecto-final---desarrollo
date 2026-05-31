@@ -16,15 +16,17 @@ public class MongoRouteEventAdapter implements AnalyticsRepositoryPort {
 
     @Override
     public void save(RouteEvent event) {
-        RouteEventDocument doc = new RouteEventDocument(
-                event.getEventId(),
-                event.getOrderId(),
-                event.getRobotId(),
-                event.getPath(),
-                event.getDistance(),
-                event.getDuration(),
-                event.getTimestamp()
-        );
+        RouteEventDocument doc = new RouteEventDocument();
+        doc.setEventId(event.getEventId());
+        doc.setEventType(event.getEventType());
+        doc.setOrderId(event.getOrderId());
+        doc.setRobotId(event.getRobotId());
+        doc.setWarehouseId(event.getWarehouseId());
+        doc.setFragileItems(event.isFragileItems());
+        doc.setPath(event.getPath());
+        doc.setDistance(event.getDistance());
+        doc.setDuration(event.getDuration());
+        doc.setTimestamp(event.getTimestamp());
         mongoTemplate.save(doc, "route_events");
     }
 }

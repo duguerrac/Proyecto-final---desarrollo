@@ -75,11 +75,11 @@ services:
     volumes:
       - mongo_data:/data/db
     healthcheck:
-      test: echo 'db.runCommand("ping").ok' | mongosh --quiet
-      interval: 10s
-      timeout: 5s
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.runCommand({ping:1}).ok"]
+      interval: 15s
+      timeout: 10s
       retries: 5
-      start_period: 20s
+      start_period: 30s
     networks:
       - smartlogistic-net
 
@@ -94,10 +94,10 @@ services:
       - rabbitmq_data:/var/lib/rabbitmq
     healthcheck:
       test: ["CMD", "rabbitmq-diagnostics", "ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 20s
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
     networks:
       - smartlogistic-net
 
@@ -123,7 +123,7 @@ services:
     container_name: smartlogistic-nginx
     restart: unless-stopped
     ports:
-      - "${NGINX_PORT:-8080}:80"
+      - "${NGINX_PORT:-8086}:80"
     volumes:
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
     depends_on:
@@ -153,7 +153,7 @@ services:
       ROBOT_STATUS_URL: http://ms-robot-status:8082
       MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE: prometheus,health,info
       MANAGEMENT_TRACING_SAMPLING_PROBABILITY: "1.0"
-      OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4318
+      MANAGEMENT_OTLP_TRACING_ENDPOINT: http://jaeger:4318/v1/traces
     depends_on:
       warehouse-db:
         condition: service_healthy
@@ -182,7 +182,7 @@ services:
       SPRING_REDIS_PORT: 6379
       MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE: prometheus,health,info
       MANAGEMENT_TRACING_SAMPLING_PROBABILITY: "1.0"
-      OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4318
+      MANAGEMENT_OTLP_TRACING_ENDPOINT: http://jaeger:4318/v1/traces
     depends_on:
       robot-redis:
         condition: service_healthy
@@ -203,12 +203,13 @@ services:
       - "${ANALYTICS_PORT:-8083}:8083"
     environment:
       SERVER_PORT: 8083
+      SPRING_APPLICATION_NAME: ms-logistics-analytics
       SPRING_DATA_MONGODB_URI: mongodb://analytics-db:27017/${MONGO_DB:-logistics_analytics}
       SPRING_RABBITMQ_HOST: rabbitmq
       SPRING_RABBITMQ_PORT: 5672
       MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE: prometheus,health,info
       MANAGEMENT_TRACING_SAMPLING_PROBABILITY: "1.0"
-      OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4318
+      MANAGEMENT_OTLP_TRACING_ENDPOINT: http://jaeger:4318/v1/traces
     depends_on:
       analytics-db:
         condition: service_healthy
@@ -231,13 +232,14 @@ services:
       - "${IDENTITY_PORT:-8084}:8084"
     environment:
       SERVER_PORT: 8084
+      SPRING_APPLICATION_NAME: ms-identity
       SPRING_DATASOURCE_URL: jdbc:postgresql://auth-db:5432/${AUTH_POSTGRES_DB:-auth_db}
       SPRING_DATASOURCE_USERNAME: ${AUTH_POSTGRES_USER:-auth}
       SPRING_DATASOURCE_PASSWORD: ${AUTH_POSTGRES_PASSWORD:-auth_pass}
       JWT_SECRET: ${JWT_SECRET:-smartlogistic-secret-key-change-in-production}
       MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE: prometheus,health,info
       MANAGEMENT_TRACING_SAMPLING_PROBABILITY: "1.0"
-      OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4318
+      MANAGEMENT_OTLP_TRACING_ENDPOINT: http://jaeger:4318/v1/traces
     depends_on:
       auth-db:
         condition: service_healthy
@@ -275,7 +277,7 @@ services:
     container_name: smartlogistic-grafana
     restart: unless-stopped
     ports:
-      - "${GRAFANA_PORT:-3000}:3000"
+      - "${GRAFANA_PORT:-3001}:3000"
     environment:
       GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}

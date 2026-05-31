@@ -4,21 +4,21 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.smartlogistics.warehouse.application.port.out.RouteEventPublisherPort;
 import com.smartlogistics.warehouse.domain.model.RouteCompletedEvent;
-import io.nats.client.Nats;
-import java.nio.charset.StandardCharsets;
-import org.springframework.beans.factory.annotation.Value;
+import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.stereotype.Component;
 
 @Component
-public class NatsRouteEventPublisher implements RouteEventPublisherPort {
-    private final ObjectMapper objectMapper;
-    private final String natsUrl;
-    private final String subject;
+public class RabbitRouteEventPublisher implements RouteEventPublisherPort {
 
-    public NatsRouteEventPublisher(ObjectMapper objectMapper, @Value("${nats.url}") String natsUrl, @Value("${nats.subject:route.completed}") String subject) {
+    static final String EXCHANGE = "logistics.exchange";
+    static final String ROUTING_KEY = "route.completed";
+
+    private final RabbitTemplate rabbitTemplate;
+    private final ObjectMapper objectMapper;
+
+    public RabbitRouteEventPublisher(RabbitTemplate rabbitTemplate, ObjectMapper objectMapper) {
+        this.rabbitTemplate = rabbitTemplate;
         this.objectMapper = objectMapper;
-        this.natsUrl = natsUrl;
-        this.subject = subject;
     }
 
     @Override
@@ -31,11 +31,6 @@ public class NatsRouteEventPublisher implements RouteEventPublisherPort {
     }
 
     void publishPayload(String payload) {
-        try (var connection = Nats.connect(natsUrl)) {
-            connection.publish(subject, payload.getBytes(StandardCharsets.UTF_8));
-            connection.flush(java.time.Duration.ofSeconds(2));
-        } catch (Exception ex) {
-            throw new IllegalStateException("Could not publish route.completed to NATS", ex);
-        }
+        rabbitTemplate.convertAndSend(EXCHANGE, ROUTING_KEY, payload);
     }
 }
