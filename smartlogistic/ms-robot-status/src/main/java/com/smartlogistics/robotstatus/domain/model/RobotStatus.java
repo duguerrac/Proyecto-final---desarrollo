@@ -1,13 +1,14 @@
 package com.smartlogistics.robotstatus.domain.model;
 
 /**
- * Value Object representing the operational status of a robot.
- * Pure Java — zero framework imports.
+ * Operational modes for a warehouse robot.
  */
 public enum RobotStatus {
     IDLE,
     MOVING,
-    PICKING,
+    LOADING,
+    UNLOADING,
     CHARGING,
-    OFFLINE
+    ERROR,
+    DISPATCHED
 }

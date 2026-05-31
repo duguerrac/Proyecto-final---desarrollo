@@ -5,7 +5,7 @@
 #include "CoreMinimal.h"
 #include "GameFramework/Actor.h"
 #include "RobotTypes.h"
-#include "NatsWebSocketClient.h"
+#include "HttpRobotClient.h"
 #include "RobotManager.generated.h"
 
 class AWarehouseRobot;
@@ -13,7 +13,7 @@ class AWarehouseEnvironment;
 
 /**
  * Central manager for the SmartLogistics warehouse simulation.
- * Owns the NATS WebSocket client and manages a pool of AWarehouseRobot actors.
+ * Owns the HTTP REST client and manages a pool of AWarehouseRobot actors.
  * Place one instance in the level to enable the simulation.
  */
 UCLASS(BlueprintType, Category = "SmartLogistics")
@@ -30,17 +30,13 @@ public:
 
     // ─── Configuration (set in level editor) ─────────────────────
 
-    /** NATS WebSocket URL. Default: ws://localhost:8443 (matches docker-compose NATS_WS_PORT) */
+    /** Robot Status API URL (no trailing slash). */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SmartLogistics|Config")
-    FString NatsUrl = TEXT("127.0.0.1:4222");
+    FString RobotApiUrl = TEXT("http://localhost:8082");
 
     /** Warehouse Core API URL (no trailing slash). */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SmartLogistics|Config")
     FString WarehouseApiUrl = TEXT("http://localhost:8081");
-
-    /** Robot Status API URL (no trailing slash). */
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SmartLogistics|Config")
-    FString RobotApiUrl = TEXT("http://localhost:8082");
 
     /** How many robot slots to pre-allocate in the scene. */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SmartLogistics|Config",
@@ -65,9 +61,9 @@ public:
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "SmartLogistics|Status")
     int32 TotalEventsReceived = 0;
 
-    /** Is NATS connected? */
+    /** Is the backend connected? */
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "SmartLogistics|Status")
-    bool bIsNatsConnected = false;
+    bool bIsBackendConnected = false;
 
     // ─── Warehouse Environment Reference ────────────────────────
 
@@ -94,19 +90,19 @@ public:
 
     // ─── Actions ─────────────────────────────────────────────────
 
-    /** Manually connect to NATS (called automatically in BeginPlay). */
+    /** Connect to backend APIs (called automatically in BeginPlay). */
     UFUNCTION(BlueprintCallable, Category = "SmartLogistics")
-    void ConnectToNats();
+    void ConnectToBackend();
 
-    /** Disconnect from NATS. */
+    /** Disconnect from backend. */
     UFUNCTION(BlueprintCallable, Category = "SmartLogistics")
-    void DisconnectFromNats();
+    void DisconnectFromBackend();
 
     /** Get all tracked robot data as array. */
     UFUNCTION(BlueprintCallable, Category = "SmartLogistics")
     void GetAllRobotData(TArray<FSmartLogisticRobotData>& OutData) const;
 
-    /** Publish all robot telemetry to NATS */
+    /** Publish all robot telemetry to backend via HTTP */
     UFUNCTION(BlueprintCallable, Category = "SmartLogistics")
     void PublishTelemetry();
 
@@ -118,7 +114,7 @@ public:
     UFUNCTION(BlueprintCallable, Category = "SmartLogistics")
     void FetchAndApplyWarehouseLayout();
 
-    /** Apply a layout from a raw JSON string (for NATS event-driven updates). */
+    /** Apply a layout from a raw JSON string. */
     UFUNCTION(BlueprintCallable, Category = "SmartLogistics")
     void ApplyWarehouseLayoutFromJson(const FString& JsonString);
 
@@ -129,9 +125,9 @@ public:
     FOnRobotStatusReceived OnRobotUpdated;
 
 private:
-    /** NATS client instance. */
+    /** HTTP REST client instance. */
     UPROPERTY()
-    UNatsWebSocketClient* NatsClient;
+    UHttpRobotClient* HttpClient;
 
     /** Map robot ID → robot actor instance. */
     UPROPERTY()
@@ -140,15 +136,11 @@ private:
     /** Counter for naming new robot actors. */
     int32 RobotCounter = 0;
 
-    /** Handle incoming NATS event. */
-    UFUNCTION()
-    void HandleRobotStatusEvent(const FSmartLogisticRobotData& RobotData);
-
-    /** Handle incoming NATS command. */
+    /** Handle incoming command. */
     UFUNCTION()
     void HandleRobotCommand(const FString& RobotId, const FString& CommandType, const FString& TargetLocation);
 
-    /** Handle incoming NATS command with mission data (STOCK_IN, STOCK_OUT, etc). */
+    /** Handle incoming mission command. */
     UFUNCTION()
     void HandleMissionCommand(const FString& RobotId, int64 PackageId, const FString& MissionType,
         const FString& ReceptionSpotCode, const FString& TargetSpotCode, const FString& ItemSku, int32 Quantity);
@@ -162,7 +154,7 @@ private:
     UFUNCTION()
     void HandleRobotArrival(AWarehouseRobot* Robot, const FString& MissionType);
 
-    /** Publish a mission completion event to NATS. */
+    /** Publish a mission completion event. */
     void PublishMissionEvent(const FString& EventType, const FString& RobotId,
         int64 PackageId, const FString& SpotCode, const FString& MissionType);
 
@@ -181,10 +173,6 @@ private:
     /**
      * Request a route from the backend route-planning API and instruct the robot
      * to follow the resulting waypoints.
-     * @param Robot The robot to dispatch
-     * @param FromCode Root point code for origin (e.g. "RP-R01-C02")
-     * @param ToCode Root point code for destination
-     * @param bPickUpAtDestination Whether to pick up items when arriving (affects mission phase)
      */
     void RequestRouteAndFollowWaypoints(AWarehouseRobot* Robot, const FString& FromCode, const FString& ToCode,
         bool bPickUpAtDestination = false);
