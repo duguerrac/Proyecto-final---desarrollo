@@ -1,170 +1,63 @@
 package com.smartlogistics.robotstatus.infrastructure.adapter.in.rest;
 
 import com.smartlogistics.robotstatus.application.port.in.GetRobotStatusUseCase;
-import com.smartlogistics.robotstatus.application.port.in.SendRobotCommandUseCase;
-import com.smartlogistics.robotstatus.application.port.in.UpdateBatteryUseCase;
+import com.smartlogistics.robotstatus.application.port.in.RegisterRobotUseCase;
 import com.smartlogistics.robotstatus.domain.exception.RobotNotFoundException;
-import com.smartlogistics.robotstatus.infrastructure.adapter.out.sse.SseTelemetryAdapter;
-import com.smartlogistics.robotstatus.domain.model.CommandType;
 import com.smartlogistics.robotstatus.domain.model.Robot;
-import com.smartlogistics.robotstatus.domain.model.RobotCommand;
 import org.springframework.http.HttpStatus;
-import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
-import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
-
-import java.util.List;
-import java.util.Map;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 
 @RestController
 @RequestMapping("/api/robots")
 public class RobotStatusController {
 
-    private final GetRobotStatusUseCase getRobotStatusUseCase;
-    private final UpdateBatteryUseCase updateBatteryUseCase;
-    private final SendRobotCommandUseCase sendRobotCommandUseCase;
-    private final SseTelemetryAdapter sseTelemetryAdapter;
-    private final ExecutorService sseExecutor = Executors.newCachedThreadPool();
+    private final GetRobotStatusUseCase getRobotStatus;
+    private final RegisterRobotUseCase registerRobot;
 
-    public RobotStatusController(GetRobotStatusUseCase getRobotStatusUseCase,
-                                 UpdateBatteryUseCase updateBatteryUseCase,
-                                 SendRobotCommandUseCase sendRobotCommandUseCase,
-                                 SseTelemetryAdapter sseTelemetryAdapter) {
-        this.getRobotStatusUseCase = getRobotStatusUseCase;
-        this.updateBatteryUseCase = updateBatteryUseCase;
-        this.sendRobotCommandUseCase = sendRobotCommandUseCase;
-        this.sseTelemetryAdapter = sseTelemetryAdapter;
-    }
-
-    // ──────────── Status Endpoints ────────────
-
-    @GetMapping
-    public ResponseEntity<List<Map<String, Object>>> getAllRobots() {
-        List<Map<String, Object>> robots = getRobotStatusUseCase.getAllRobots().stream()
-                .map(this::toMap)
-                .toList();
-        return ResponseEntity.ok(robots);
-    }
-
-    @GetMapping("/available")
-    public ResponseEntity<List<Map<String, Object>>> getAvailableRobots() {
-        List<Map<String, Object>> robots = getRobotStatusUseCase.getAvailableRobots().stream()
-                .map(this::toMap)
-                .toList();
-        return ResponseEntity.ok(robots);
+    public RobotStatusController(GetRobotStatusUseCase getRobotStatus,
+                                 RegisterRobotUseCase registerRobot) {
+        this.getRobotStatus = getRobotStatus;
+        this.registerRobot = registerRobot;
     }
 
     @GetMapping("/{id}/status")
-    public ResponseEntity<Map<String, Object>> getRobotStatus(@PathVariable String id) {
-        Robot robot = getRobotStatusUseCase.getRobotStatus(id)
-                .orElseThrow(() -> new RobotNotFoundException(id));
-        return ResponseEntity.ok(toMap(robot));
+    public ResponseEntity<RobotStatusResponse> getStatus(@PathVariable String id) {
+        Robot robot = getRobotStatus.getStatus(id);
+        return ResponseEntity.ok(RobotStatusResponse.from(robot));
     }
 
     @PostMapping
-    public ResponseEntity<Map<String, Object>> createOrUpdateRobot(@RequestBody Map<String, Object> body) {
-        Robot robot = new Robot();
-        robot.setId((String) body.get("id"));
-        robot.setName((String) body.getOrDefault("name", body.get("id")));
-        robot.setBatteryLevel(body.containsKey("batteryLevel") ? ((Number) body.get("batteryLevel")).intValue() : 100);
-        robot.setAvailable(body.containsKey("available") ? (Boolean) body.get("available") : true);
-        robot.setCurrentLocation((String) body.getOrDefault("currentLocation", "DOCK-01"));
-
-        String mode = (String) body.getOrDefault("operationalMode", "IDLE");
-        robot.setOperationalMode(com.smartlogistics.robotstatus.domain.model.RobotStatus.valueOf(mode));
-
-        Robot saved = updateBatteryUseCase.saveRobot(robot);
-        return ResponseEntity.status(HttpStatus.CREATED).body(toMap(saved));
-    }
-
-    @PatchMapping("/{id}/status")
-    public ResponseEntity<Map<String, Object>> updateOperationalMode(
-            @PathVariable String id, @RequestBody Map<String, Object> body) {
-        Robot robot = getRobotStatusUseCase.getRobotStatus(id)
-                .orElseThrow(() -> new RobotNotFoundException(id));
-
-        if (body.containsKey("operationalMode")) {
-            String mode = (String) body.get("operationalMode");
-            robot.setOperationalMode(com.smartlogistics.robotstatus.domain.model.RobotStatus.valueOf(mode));
-        }
-        if (body.containsKey("batteryLevel")) {
-            robot.setBatteryLevel(((Number) body.get("batteryLevel")).intValue());
-        }
-        if (body.containsKey("available")) {
-            robot.setAvailable((Boolean) body.get("available"));
-        }
-        if (body.containsKey("currentLocation")) {
-            robot.setCurrentLocation((String) body.get("currentLocation"));
-        }
-
-        Robot saved = updateBatteryUseCase.saveRobot(robot);
-        return ResponseEntity.ok(toMap(saved));
-    }
-
-    // ──────────── Command Endpoint ────────────
-
-    @PostMapping("/{id}/command")
-    public ResponseEntity<Map<String, Object>> sendCommand(
-            @PathVariable String id, @RequestBody Map<String, Object> body) {
-
-        RobotCommand command = new RobotCommand();
-        command.setRobotId(id);
-        command.setType(CommandType.valueOf((String) body.get("type")));
-        command.setTargetLocation((String) body.getOrDefault("targetLocation", null));
-        command.setItemSku((String) body.getOrDefault("itemSku", null));
-        command.setOrderId((String) body.getOrDefault("orderId", null));
-
-        @SuppressWarnings("unchecked")
-        List<String> routePoints = (List<String>) body.get("routePoints");
-        command.setRoutePoints(routePoints);
-
-        RobotCommand sent = sendRobotCommandUseCase.sendCommand(command);
-
-        return ResponseEntity.ok(Map.of(
-                "status", "COMMAND_SENT",
-                "robotId", sent.getRobotId(),
-                "commandType", sent.getType().name(),
-                "targetLocation", sent.getTargetLocation() != null ? sent.getTargetLocation() : "",
-                "routePoints", sent.getRoutePoints(),
-                "itemSku", sent.getItemSku() != null ? sent.getItemSku() : "",
-                "orderId", sent.getOrderId() != null ? sent.getOrderId() : ""
-        ));
-    }
-
-    // ──────────── SSE Telemetry Stream ────────────
-
-    @GetMapping(value = "/telemetry/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
-    public SseEmitter streamTelemetry() {
-        SseEmitter emitter = sseTelemetryAdapter.createEmitter();
-        return emitter;
-    }
-
-    @GetMapping(value = "/{id}/telemetry/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
-    public SseEmitter streamRobotTelemetry(@PathVariable String id) {
-        SseEmitter emitter = sseTelemetryAdapter.createEmitterForRobot(id);
-        return emitter;
-    }
-
-    // ──────────── Helpers ────────────
-
-    private Map<String, Object> toMap(Robot robot) {
-        return Map.of(
-                "id", robot.getId(),
-                "name", robot.getName() != null ? robot.getName() : "",
-                "batteryLevel", robot.getBatteryLevel(),
-                "available", robot.isAvailable(),
-                "currentLocation", robot.getCurrentLocation() != null ? robot.getCurrentLocation() : "",
-                "operationalMode", robot.getOperationalMode() != null ? robot.getOperationalMode().name() : "UNKNOWN",
-                "assignable", robot.isAssignable()
+    public ResponseEntity<RobotStatusResponse> register(@RequestBody RegisterRobotRequest request) {
+        Robot robot = new Robot(
+                request.robotId(),
+                request.name(),
+                request.batteryLevel(),
+                request.available(),
+                request.currentLocation(),
+                request.operationalMode()
         );
+        Robot saved = registerRobot.register(robot);
+        return ResponseEntity.status(HttpStatus.CREATED).body(RobotStatusResponse.from(saved));
     }
 
     @ExceptionHandler(RobotNotFoundException.class)
-    @ResponseStatus(HttpStatus.NOT_FOUND)
-    public Map<String, String> handleNotFound(RobotNotFoundException ex) {
-        return Map.of("error", ex.getMessage());
+    public ResponseEntity<String> handleNotFound(RobotNotFoundException ex) {
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(ex.getMessage());
     }
+
+    public record RobotStatusResponse(String robotId, String name, int batteryLevel,
+                                      boolean available, String currentLocation,
+                                      String operationalMode) {
+        static RobotStatusResponse from(Robot robot) {
+            return new RobotStatusResponse(
+                    robot.id(), robot.name(), robot.batteryLevel(),
+                    robot.available(), robot.currentLocation(), robot.operationalMode()
+            );
+        }
+    }
+
+    public record RegisterRobotRequest(String robotId, String name, int batteryLevel,
+                                       boolean available, String currentLocation,
+                                       String operationalMode) {}
 }

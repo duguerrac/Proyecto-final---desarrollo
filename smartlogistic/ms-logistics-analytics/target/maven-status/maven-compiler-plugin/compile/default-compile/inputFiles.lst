@@ -1,0 +1,13 @@
+C:\Users\Duban\Documents\arquitectura 2\Proyecto final\smartlogistic\ms-logistics-analytics\src\main\java\com\smartlogistics\analytics\application\port\in\ProcessRouteEventUseCase.java
+C:\Users\Duban\Documents\arquitectura 2\Proyecto final\smartlogistic\ms-logistics-analytics\src\main\java\com\smartlogistics\analytics\application\port\out\AnalyticsRepositoryPort.java
+C:\Users\Duban\Documents\arquitectura 2\Proyecto final\smartlogistic\ms-logistics-analytics\src\main\java\com\smartlogistics\analytics\application\service\AnalyticsService.java
+C:\Users\Duban\Documents\arquitectura 2\Proyecto final\smartlogistic\ms-logistics-analytics\src\main\java\com\smartlogistics\analytics\domain\exception\EventProcessingException.java
+C:\Users\Duban\Documents\arquitectura 2\Proyecto final\smartlogistic\ms-logistics-analytics\src\main\java\com\smartlogistics\analytics\domain\model\CongestionSample.java
+C:\Users\Duban\Documents\arquitectura 2\Proyecto final\smartlogistic\ms-logistics-analytics\src\main\java\com\smartlogistics\analytics\domain\model\PathPoint.java
+C:\Users\Duban\Documents\arquitectura 2\Proyecto final\smartlogistic\ms-logistics-analytics\src\main\java\com\smartlogistics\analytics\domain\model\RouteEvent.java
+C:\Users\Duban\Documents\arquitectura 2\Proyecto final\smartlogistic\ms-logistics-analytics\src\main\java\com\smartlogistics\analytics\infrastructure\adapter\in\amqp\RouteEventConsumer.java
+C:\Users\Duban\Documents\arquitectura 2\Proyecto final\smartlogistic\ms-logistics-analytics\src\main\java\com\smartlogistics\analytics\infrastructure\adapter\out\mongodb\MongoRouteEventAdapter.java
+C:\Users\Duban\Documents\arquitectura 2\Proyecto final\smartlogistic\ms-logistics-analytics\src\main\java\com\smartlogistics\analytics\infrastructure\adapter\out\mongodb\RouteEventDocument.java
+C:\Users\Duban\Documents\arquitectura 2\Proyecto final\smartlogistic\ms-logistics-analytics\src\main\java\com\smartlogistics\analytics\infrastructure\config\AnalyticsConfig.java
+C:\Users\Duban\Documents\arquitectura 2\Proyecto final\smartlogistic\ms-logistics-analytics\src\main\java\com\smartlogistics\analytics\infrastructure\config\BeanConfig.java
+C:\Users\Duban\Documents\arquitectura 2\Proyecto final\smartlogistic\ms-logistics-analytics\src\main\java\com\smartlogistics\analytics\SmartLogisticLogisticsAnalyticsApplication.java

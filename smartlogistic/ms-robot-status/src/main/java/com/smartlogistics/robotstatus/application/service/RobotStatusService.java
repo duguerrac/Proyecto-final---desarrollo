@@ -3,22 +3,26 @@ package com.smartlogistics.robotstatus.application.service;
 import com.smartlogistics.robotstatus.application.port.in.DispatchRobotUseCase;
 import com.smartlogistics.robotstatus.application.port.in.GetRobotStatusUseCase;
 import com.smartlogistics.robotstatus.application.port.in.PublishSnapshotUseCase;
+import com.smartlogistics.robotstatus.application.port.in.RegisterRobotUseCase;
 import com.smartlogistics.robotstatus.application.port.in.UpdateBatteryUseCase;
 import com.smartlogistics.robotstatus.application.port.out.RobotCachePort;
 import com.smartlogistics.robotstatus.application.port.out.RobotEventPort;
+import com.smartlogistics.robotstatus.domain.exception.RobotNotFoundException;
 import com.smartlogistics.robotstatus.domain.model.Robot;
 import com.smartlogistics.robotstatus.domain.model.RobotStatus;
+
+import org.springframework.stereotype.Service;
 
 import java.util.List;
 import java.util.Optional;
 
 /**
  * Application service that orchestrates robot status use cases.
- * Pure Java — zero framework imports. Depends only on ports.
  */
+@Service
 public class RobotStatusService
         implements GetRobotStatusUseCase, UpdateBatteryUseCase,
-        DispatchRobotUseCase, PublishSnapshotUseCase {
+        DispatchRobotUseCase, PublishSnapshotUseCase, RegisterRobotUseCase {
 
     private final RobotCachePort robotCachePort;
     private final RobotEventPort robotEventPort;
@@ -31,6 +35,12 @@ public class RobotStatusService
     @Override
     public Optional<Robot> getRobotStatus(String robotId) {
         return robotCachePort.findById(robotId);
+    }
+
+    @Override
+    public Robot getStatus(String robotId) {
+        return robotCachePort.findById(robotId)
+                .orElseThrow(() -> new RobotNotFoundException(robotId));
     }
 
     @Override
@@ -50,6 +60,12 @@ public class RobotStatusService
         Robot saved = robotCachePort.save(robot);
         robotEventPort.publishStatusUpdate(saved);
         return saved;
+    }
+
+    @Override
+    public Robot register(Robot robot) {
+        robotCachePort.save(robot);
+        return robot;
     }
 
     @Override

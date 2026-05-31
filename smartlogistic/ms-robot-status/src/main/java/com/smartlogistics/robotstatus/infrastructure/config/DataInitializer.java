@@ -1,46 +1,27 @@
 package com.smartlogistics.robotstatus.infrastructure.config;
 
-import com.smartlogistics.robotstatus.application.port.in.PublishSnapshotUseCase;
-import com.smartlogistics.robotstatus.application.port.in.UpdateBatteryUseCase;
+import com.smartlogistics.robotstatus.application.port.out.RobotCachePort;
 import com.smartlogistics.robotstatus.domain.model.Robot;
-import com.smartlogistics.robotstatus.domain.model.RobotStatus;
 import org.springframework.boot.CommandLineRunner;
+import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Component;
 
-/**
- * Seeds 5 robots into Redis at application startup.
- * 2 robots with battery < 15% (RBT-LOW, RBT-03)
- * 3 robots with battery >= 15% (RBT-01, RBT-02, RBT-04)
- */
 @Component
+@Profile("!test")
 public class DataInitializer implements CommandLineRunner {
 
-    private final UpdateBatteryUseCase updateBatteryUseCase;
-    private final PublishSnapshotUseCase publishSnapshotUseCase;
+    private final RobotCachePort cache;
 
-    public DataInitializer(UpdateBatteryUseCase updateBatteryUseCase,
-                           PublishSnapshotUseCase publishSnapshotUseCase) {
-        this.updateBatteryUseCase = updateBatteryUseCase;
-        this.publishSnapshotUseCase = publishSnapshotUseCase;
+    public DataInitializer(RobotCachePort cache) {
+        this.cache = cache;
     }
 
     @Override
     public void run(String... args) {
-        seedRobot("RBT-01", "Robot Alpha", 85, true, "DOCK-01", RobotStatus.IDLE);
-        seedRobot("RBT-02", "Robot Beta", 72, true, "AISLE-A-03", RobotStatus.IDLE);
-        seedRobot("RBT-03", "Robot Gamma", 8, true, "CHARGE-STATION", RobotStatus.CHARGING);
-        seedRobot("RBT-04", "Robot Delta", 50, true, "DOCK-02", RobotStatus.IDLE);
-        seedRobot("RBT-LOW", "Robot Low Battery", 10, true, "AISLE-B-01", RobotStatus.IDLE);
-
-        // Publish initial batch snapshot for Unreal Engine simulation
-        publishSnapshotUseCase.publishBatchSnapshot();
-
-        System.out.println("[DataInitializer] Seeded 5 robots into Redis + NATS batch snapshot published");
-    }
-
-    private void seedRobot(String id, String name, int battery, boolean available,
-                           String location, RobotStatus mode) {
-        Robot robot = new Robot(id, name, battery, available, location, mode);
-        updateBatteryUseCase.saveRobot(robot);
+        cache.save(new Robot("RBT-01", "Alpha", 85, true, "RP-START", "AUTONOMOUS"));
+        cache.save(new Robot("RBT-02", "Beta", 72, true, "RP-A1-02", "AUTONOMOUS"));
+        cache.save(new Robot("RBT-03", "Gamma", 45, true, "RP-B1-01", "AUTONOMOUS"));
+        cache.save(new Robot("RBT-LOW", "Delta", 10, true, "RP-CHARGE", "CHARGING"));
+        cache.save(new Robot("RBT-MID", "Epsilon", 12, false, "RP-EXIT", "MAINTENANCE"));
     }
 }

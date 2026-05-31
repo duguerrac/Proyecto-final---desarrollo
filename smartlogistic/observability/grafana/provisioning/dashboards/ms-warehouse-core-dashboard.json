@@ -1,0 +1,258 @@
+{
+  "title": "SmartLogistics - Warehouse Core",
+  "uid": "ms-warehouse-core",
+  "schemaVersion": 39,
+  "version": 1,
+  "timezone": "browser",
+  "editable": true,
+  "panels": [
+    {
+      "title": "Health & KPIs",
+      "type": "row",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 },
+      "collapse": false
+    },
+    {
+      "id": 1,
+      "title": "Status",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 3, "x": 0, "y": 1 },
+      "targets": [{ "expr": "up{service=\"ms-warehouse-core\"}", "legendFormat": "" }],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "green", "value": 1 }] },
+          "color": { "mode": "thresholds" }
+        }
+      },
+      "options": { "colorMode": "background", "graphMode": "none", "textMode": "auto" }
+    },
+    {
+      "id": 2,
+      "title": "Uptime (hours)",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 3, "x": 3, "y": 1 },
+      "targets": [{ "expr": "process_uptime_seconds{service=\"ms-warehouse-core\"} / 3600", "legendFormat": "" }],
+      "fieldConfig": { "defaults": { "unit": "none", "decimals": 1 } },
+      "options": { "colorMode": "value", "graphMode": "none", "textMode": "auto" }
+    },
+    {
+      "id": 3,
+      "title": "Req Rate (/sec)",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 3, "x": 6, "y": 1 },
+      "targets": [{ "expr": "sum(rate(http_server_requests_seconds_count{service=\"ms-warehouse-core\"}[5m]))", "legendFormat": "" }],
+      "fieldConfig": { "defaults": { "unit": "reqps", "decimals": 1 } },
+      "options": { "colorMode": "value", "graphMode": "none", "textMode": "auto" }
+    },
+    {
+      "id": 4,
+      "title": "Error Rate (/sec)",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 3, "x": 9, "y": 1 },
+      "targets": [{ "expr": "sum(rate(http_server_requests_seconds_count{service=\"ms-warehouse-core\",status=~\"5..\"}[5m]))", "legendFormat": "" }],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 0.1 }, { "color": "red", "value": 1 }] },
+          "color": { "mode": "thresholds" }
+        }
+      },
+      "options": { "colorMode": "value", "graphMode": "none", "textMode": "auto" }
+    },
+    {
+      "id": 5,
+      "title": "P95 Latency (ms)",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 3, "x": 12, "y": 1 },
+      "targets": [{ "expr": "histogram_quantile(0.95, sum(rate(http_server_requests_seconds_bucket{service=\"ms-warehouse-core\"}[5m])) by (le))", "legendFormat": "" }],
+      "fieldConfig": { "defaults": { "unit": "s", "decimals": 3 } },
+      "options": { "colorMode": "value", "graphMode": "none", "textMode": "auto" }
+    },
+    {
+      "id": 6,
+      "title": "Orders Created",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 3, "x": 15, "y": 1 },
+      "targets": [{ "expr": "sum(http_server_requests_seconds_count{service=\"ms-warehouse-core\",uri=~\".*/orders\",method=\"POST\"})", "legendFormat": "" }],
+      "fieldConfig": { "defaults": { "unit": "none" } },
+      "options": { "colorMode": "value", "graphMode": "none", "textMode": "auto" }
+    },
+    {
+      "id": 7,
+      "title": "Routes Completed",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 3, "x": 18, "y": 1 },
+      "targets": [{ "expr": "sum(http_server_requests_seconds_count{service=\"ms-warehouse-core\",uri=~\".*/complete\"})", "legendFormat": "" }],
+      "fieldConfig": { "defaults": { "unit": "none" } },
+      "options": { "colorMode": "value", "graphMode": "none", "textMode": "auto" }
+    },
+    {
+      "id": 8,
+      "title": "Outbox Events Published",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 3, "x": 21, "y": 1 },
+      "targets": [{ "expr": "rate(rabbitmq_published_total{service=\"ms-warehouse-core\"}[5m]) or vector(0)", "legendFormat": "" }],
+      "fieldConfig": { "defaults": { "unit": "ops" } },
+      "options": { "colorMode": "value", "graphMode": "none", "textMode": "auto" }
+    },
+    {
+      "title": "HTTP Details",
+      "type": "row",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 5 },
+      "collapse": false
+    },
+    {
+      "id": 9,
+      "title": "Request Rate by Endpoint",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 6 },
+      "targets": [{ "expr": "rate(http_server_requests_seconds_count{service=\"ms-warehouse-core\"}[5m])", "legendFormat": "{{method}} {{uri}}" }],
+      "fieldConfig": { "defaults": { "unit": "reqps", "custom": { "showPoints": "never" } } }
+    },
+    {
+      "id": 10,
+      "title": "Status Code Distribution",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 6 },
+      "targets": [{ "expr": "rate(http_server_requests_seconds_count{service=\"ms-warehouse-core\"}[5m])", "legendFormat": "{{status}}" }],
+      "fieldConfig": { "defaults": { "unit": "reqps", "custom": { "showPoints": "never" } } }
+    },
+    {
+      "id": 11,
+      "title": "Latency (P50, P95, P99)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 14 },
+      "targets": [
+        { "expr": "histogram_quantile(0.50, sum(rate(http_server_requests_seconds_bucket{service=\"ms-warehouse-core\"}[5m])) by (le))", "legendFormat": "p50" },
+        { "expr": "histogram_quantile(0.95, sum(rate(http_server_requests_seconds_bucket{service=\"ms-warehouse-core\"}[5m])) by (le))", "legendFormat": "p95" },
+        { "expr": "histogram_quantile(0.99, sum(rate(http_server_requests_seconds_bucket{service=\"ms-warehouse-core\"}[5m])) by (le))", "legendFormat": "p99" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "s", "custom": { "showPoints": "never" } } }
+    },
+    {
+      "id": 12,
+      "title": "Outcome (Success vs Error)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 14 },
+      "targets": [{ "expr": "rate(http_server_requests_seconds_count{service=\"ms-warehouse-core\"}[5m])", "legendFormat": "{{outcome}}" }],
+      "fieldConfig": { "defaults": { "unit": "reqps", "custom": { "showPoints": "never" } } }
+    },
+    {
+      "title": "JVM",
+      "type": "row",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 22 },
+      "collapse": true
+    },
+    {
+      "id": 13,
+      "title": "Heap Memory",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 23 },
+      "targets": [
+        { "expr": "jvm_memory_used_bytes{service=\"ms-warehouse-core\",area=\"heap\"}", "legendFormat": "used" },
+        { "expr": "jvm_memory_max_bytes{service=\"ms-warehouse-core\",area=\"heap\"}", "legendFormat": "max" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "bytes", "custom": { "showPoints": "never" } } }
+    },
+    {
+      "id": 14,
+      "title": "GC Pauses",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 23 },
+      "targets": [
+        { "expr": "rate(jvm_gc_pause_seconds_sum{service=\"ms-warehouse-core\"}[5m])", "legendFormat": "{{gc}} duration" },
+        { "expr": "rate(jvm_gc_pause_seconds_count{service=\"ms-warehouse-core\"}[5m])", "legendFormat": "{{gc}} count" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "s", "custom": { "showPoints": "never" } } }
+    },
+    {
+      "id": 15,
+      "title": "CPU Usage",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 23 },
+      "targets": [
+        { "expr": "process_cpu_usage{service=\"ms-warehouse-core\"}", "legendFormat": "process" },
+        { "expr": "system_cpu_usage{service=\"ms-warehouse-core\"}", "legendFormat": "system" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "percentunit", "custom": { "showPoints": "never" }, "max": 1 } }
+    },
+    {
+      "title": "Messaging (RabbitMQ)",
+      "type": "row",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 31 },
+      "collapse": true
+    },
+    {
+      "id": 16,
+      "title": "Published Messages",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 32 },
+      "targets": [{ "expr": "rate(rabbitmq_published_total{service=\"ms-warehouse-core\"}[5m])", "legendFormat": "published" }],
+      "fieldConfig": { "defaults": { "unit": "ops", "custom": { "showPoints": "never" } } }
+    },
+    {
+      "id": 17,
+      "title": "Queue Depth (Ready Messages)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 32 },
+      "targets": [{ "expr": "rabbitmq_queue_messages_ready{service=\"ms-warehouse-core\"}", "legendFormat": "ready" }],
+      "fieldConfig": { "defaults": { "custom": { "showPoints": "never" } } }
+    },
+    {
+      "id": 18,
+      "title": "Consumed Messages",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 32 },
+      "targets": [{ "expr": "rate(rabbitmq_consumed_total{service=\"ms-warehouse-core\"}[5m])", "legendFormat": "consumed" }],
+      "fieldConfig": { "defaults": { "unit": "ops", "custom": { "showPoints": "never" } } }
+    },
+    {
+      "title": "DB Connection Pool (HikariCP - PostgreSQL)",
+      "type": "row",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 40 },
+      "collapse": true
+    },
+    {
+      "id": 19,
+      "title": "Active / Idle Connections",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 41 },
+      "targets": [
+        { "expr": "hikaricp_connections_active{service=\"ms-warehouse-core\"}", "legendFormat": "active" },
+        { "expr": "hikaricp_connections_idle{service=\"ms-warehouse-core\"}", "legendFormat": "idle" }
+      ],
+      "fieldConfig": { "defaults": { "custom": { "showPoints": "never" } } }
+    },
+    {
+      "id": 20,
+      "title": "Pending / Timeouts",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 41 },
+      "targets": [
+        { "expr": "hikaricp_connections_pending{service=\"ms-warehouse-core\"}", "legendFormat": "pending" },
+        { "expr": "rate(hikaricp_connections_timeout_total{service=\"ms-warehouse-core\"}[5m])", "legendFormat": "timeouts" }
+      ],
+      "fieldConfig": { "defaults": { "custom": { "showPoints": "never" } } }
+    },
+    {
+      "title": "Logs (Loki)",
+      "type": "row",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 49 },
+      "collapse": true
+    },
+    {
+      "id": 21,
+      "title": "Recent Logs",
+      "type": "logs",
+      "gridPos": { "h": 12, "w": 24, "x": 0, "y": 50 },
+      "datasource": "Loki",
+      "targets": [{ "expr": "{service_name=\"ms-warehouse-core\"}", "legendFormat": "" }],
+      "options": { "showTime": true, "showLabels": true, "wrapLogMessage": true }
+    }
+  ],
+  "links": [
+    { "title": "Global Dashboard", "type": "dashboards", "targetBlank": true },
+    { "title": "Jaeger (ms-warehouse-core)", "type": "link", "url": "http://localhost:16686/search?service=ms-warehouse-core", "targetBlank": true },
+    { "title": "Loki Explore", "type": "link", "url": "http://localhost:3001/explore?orgId=1&left=%5B%22now-1h%22,%22now%22,%22Loki%22,%7B%22expr%22:%22%7Bservice_name%3D%5C%22ms-warehouse-core%5C%22%7D%22%7D%5D", "targetBlank": true }
+  ]
+}

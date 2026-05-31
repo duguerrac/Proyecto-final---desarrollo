@@ -1,0 +1,71 @@
+receivers:
+  otlp:
+    protocols:
+      grpc:
+      http:
+        endpoint: "0.0.0.0:4318"
+
+processors:
+  batch:
+
+exporters:
+  jaeger_storage_exporter:
+    trace_storage: primary
+  prometheus:
+    endpoint: "0.0.0.0:8889"
+
+connectors:
+  spanmetrics:
+    metrics_flush_interval: 60s
+    histogram:
+      explicit:
+        buckets: [0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10]
+    dimensions:
+      - name: http.method
+        default: GET
+      - name: http.status_code
+        default: "200"
+
+extensions:
+  jaeger_storage:
+    backends:
+      primary:
+        memory:
+          max_traces: 100000
+    metric_backends:
+      prometheus_metrics:
+        prometheus:
+          endpoint: http://prometheus:9090
+          normalize_calls: true
+          normalize_duration: true
+  jaeger_query:
+    storage:
+      traces: primary
+      metrics: prometheus_metrics
+    ui:
+      menu:
+        monitor_menu: true
+
+service:
+  extensions: [jaeger_storage, jaeger_query]
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [jaeger_storage_exporter, spanmetrics]
+    metrics/spanmetrics:
+      receivers: [spanmetrics]
+      exporters: [prometheus]
+  telemetry:
+    resource:
+      service.name: jaeger-all-in-one
+    metrics:
+      level: detailed
+      readers:
+        - pull:
+            exporter:
+              prometheus:
+                host: 0.0.0.0
+                port: 8888
+    logs:
+      level: INFO

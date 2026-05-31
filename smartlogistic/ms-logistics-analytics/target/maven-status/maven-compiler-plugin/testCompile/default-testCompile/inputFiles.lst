@@ -1,0 +1,6 @@
+C:\Users\Duban\Documents\arquitectura 2\Proyecto final\smartlogistic\ms-logistics-analytics\src\test\java\com\smartlogistics\analytics\application\service\AnalyticsServiceTest.java
+C:\Users\Duban\Documents\arquitectura 2\Proyecto final\smartlogistic\ms-logistics-analytics\src\test\java\com\smartlogistics\analytics\domain\exception\EventProcessingExceptionTest.java
+C:\Users\Duban\Documents\arquitectura 2\Proyecto final\smartlogistic\ms-logistics-analytics\src\test\java\com\smartlogistics\analytics\domain\model\CongestionSampleTest.java
+C:\Users\Duban\Documents\arquitectura 2\Proyecto final\smartlogistic\ms-logistics-analytics\src\test\java\com\smartlogistics\analytics\domain\model\RouteEventTest.java
+C:\Users\Duban\Documents\arquitectura 2\Proyecto final\smartlogistic\ms-logistics-analytics\src\test\java\com\smartlogistics\analytics\infrastructure\adapter\in\amqp\RouteEventConsumerTest.java
+C:\Users\Duban\Documents\arquitectura 2\Proyecto final\smartlogistic\ms-logistics-analytics\src\test\java\com\smartlogistics\analytics\infrastructure\adapter\out\mongodb\MongoRouteEventAdapterTest.java

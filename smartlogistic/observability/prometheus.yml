@@ -1,0 +1,34 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: 'ms-identity'
+    metrics_path: '/actuator/prometheus'
+    static_configs:
+      - targets: ['ms-identity:8084']
+        labels:
+          service: 'ms-identity'
+
+  - job_name: 'ms-warehouse-core'
+    metrics_path: '/actuator/prometheus'
+    static_configs:
+      - targets: ['ms-warehouse-core:8081']
+        labels:
+          service: 'ms-warehouse-core'
+
+  - job_name: 'ms-robot-status'
+    metrics_path: '/actuator/prometheus'
+    static_configs:
+      - targets: ['ms-robot-status:8082']
+        labels:
+          service: 'ms-robot-status'
+
+  - job_name: 'ms-logistics-analytics'
+    metrics_path: '/actuator/prometheus'
+    static_configs:
+      - targets: ['ms-logistics-analytics:8083']
+        labels:
+          service: 'ms-logistics-analytics'
+
+

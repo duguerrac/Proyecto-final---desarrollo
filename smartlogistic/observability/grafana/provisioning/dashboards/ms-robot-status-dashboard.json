@@ -1,0 +1,231 @@
+{
+  "title": "SmartLogistics - Robot Status",
+  "uid": "ms-robot-status",
+  "schemaVersion": 39,
+  "version": 1,
+  "timezone": "browser",
+  "editable": true,
+  "panels": [
+    {
+      "title": "Health & KPIs",
+      "type": "row",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 },
+      "collapse": false
+    },
+    {
+      "id": 1,
+      "title": "Status",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 3, "x": 0, "y": 1 },
+      "targets": [{ "expr": "up{service=\"ms-robot-status\"}", "legendFormat": "" }],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "green", "value": 1 }] },
+          "color": { "mode": "thresholds" }
+        }
+      },
+      "options": { "colorMode": "background", "graphMode": "none", "textMode": "auto" }
+    },
+    {
+      "id": 2,
+      "title": "Uptime (hours)",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 3, "x": 3, "y": 1 },
+      "targets": [{ "expr": "process_uptime_seconds{service=\"ms-robot-status\"} / 3600", "legendFormat": "" }],
+      "fieldConfig": { "defaults": { "unit": "none", "decimals": 1 } },
+      "options": { "colorMode": "value", "graphMode": "none", "textMode": "auto" }
+    },
+    {
+      "id": 3,
+      "title": "Req Rate (/sec)",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 3, "x": 6, "y": 1 },
+      "targets": [{ "expr": "sum(rate(http_server_requests_seconds_count{service=\"ms-robot-status\"}[5m]))", "legendFormat": "" }],
+      "fieldConfig": { "defaults": { "unit": "reqps", "decimals": 1 } },
+      "options": { "colorMode": "value", "graphMode": "none", "textMode": "auto" }
+    },
+    {
+      "id": 4,
+      "title": "Error Rate (/sec)",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 3, "x": 9, "y": 1 },
+      "targets": [{ "expr": "sum(rate(http_server_requests_seconds_count{service=\"ms-robot-status\",status=~\"5..\"}[5m]))", "legendFormat": "" }],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 0.1 }, { "color": "red", "value": 1 }] },
+          "color": { "mode": "thresholds" }
+        }
+      },
+      "options": { "colorMode": "value", "graphMode": "none", "textMode": "auto" }
+    },
+    {
+      "id": 5,
+      "title": "P95 Latency (ms)",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 3, "x": 12, "y": 1 },
+      "targets": [{ "expr": "histogram_quantile(0.95, sum(rate(http_server_requests_seconds_bucket{service=\"ms-robot-status\"}[5m])) by (le))", "legendFormat": "" }],
+      "fieldConfig": { "defaults": { "unit": "s", "decimals": 3 } },
+      "options": { "colorMode": "value", "graphMode": "none", "textMode": "auto" }
+    },
+    {
+      "id": 6,
+      "title": "Active Robots",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 3, "x": 15, "y": 1 },
+      "targets": [{ "expr": "count(http_server_requests_seconds_count{service=\"ms-robot-status\",uri=~\".*/status\"}) or vector(0)", "legendFormat": "" }],
+      "fieldConfig": { "defaults": { "unit": "none" } },
+      "options": { "colorMode": "value", "graphMode": "none", "textMode": "auto" }
+    },
+    {
+      "id": 7,
+      "title": "Status Updates/min",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 3, "x": 18, "y": 1 },
+      "targets": [{ "expr": "rate(http_server_requests_seconds_count{service=\"ms-robot-status\",method=\"PUT\"}[5m]) * 60", "legendFormat": "" }],
+      "fieldConfig": { "defaults": { "unit": "cpm" } },
+      "options": { "colorMode": "value", "graphMode": "none", "textMode": "auto" }
+    },
+    {
+      "id": 8,
+      "title": "Cache Hit Ratio",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 3, "x": 21, "y": 1 },
+      "targets": [{ "expr": "rate(redis_commands_total{service=\"ms-robot-status\",status=\"hit\"}[5m]) / (rate(redis_commands_total{service=\"ms-robot-status\"}[5m]) + 1) * 100", "legendFormat": "" }],
+      "fieldConfig": { "defaults": { "unit": "percent", "decimals": 1 } },
+      "options": { "colorMode": "value", "graphMode": "none", "textMode": "auto" }
+    },
+    {
+      "title": "HTTP Details",
+      "type": "row",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 5 },
+      "collapse": false
+    },
+    {
+      "id": 9,
+      "title": "Request Rate by Endpoint",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 6 },
+      "targets": [{ "expr": "rate(http_server_requests_seconds_count{service=\"ms-robot-status\"}[5m])", "legendFormat": "{{method}} {{uri}}" }],
+      "fieldConfig": { "defaults": { "unit": "reqps", "custom": { "showPoints": "never" } } }
+    },
+    {
+      "id": 10,
+      "title": "Status Code Distribution",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 6 },
+      "targets": [{ "expr": "rate(http_server_requests_seconds_count{service=\"ms-robot-status\"}[5m])", "legendFormat": "{{status}}" }],
+      "fieldConfig": { "defaults": { "unit": "reqps", "custom": { "showPoints": "never" } } }
+    },
+    {
+      "id": 11,
+      "title": "Latency (P50, P95, P99)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 14 },
+      "targets": [
+        { "expr": "histogram_quantile(0.50, sum(rate(http_server_requests_seconds_bucket{service=\"ms-robot-status\"}[5m])) by (le))", "legendFormat": "p50" },
+        { "expr": "histogram_quantile(0.95, sum(rate(http_server_requests_seconds_bucket{service=\"ms-robot-status\"}[5m])) by (le))", "legendFormat": "p95" },
+        { "expr": "histogram_quantile(0.99, sum(rate(http_server_requests_seconds_bucket{service=\"ms-robot-status\"}[5m])) by (le))", "legendFormat": "p99" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "s", "custom": { "showPoints": "never" } } }
+    },
+    {
+      "id": 12,
+      "title": "Outcome (Success vs Error)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 14 },
+      "targets": [{ "expr": "rate(http_server_requests_seconds_count{service=\"ms-robot-status\"}[5m])", "legendFormat": "{{outcome}}" }],
+      "fieldConfig": { "defaults": { "unit": "reqps", "custom": { "showPoints": "never" } } }
+    },
+    {
+      "title": "JVM",
+      "type": "row",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 22 },
+      "collapse": true
+    },
+    {
+      "id": 13,
+      "title": "Heap Memory",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 23 },
+      "targets": [
+        { "expr": "jvm_memory_used_bytes{service=\"ms-robot-status\",area=\"heap\"}", "legendFormat": "used" },
+        { "expr": "jvm_memory_max_bytes{service=\"ms-robot-status\",area=\"heap\"}", "legendFormat": "max" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "bytes", "custom": { "showPoints": "never" } } }
+    },
+    {
+      "id": 14,
+      "title": "GC Pauses",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 23 },
+      "targets": [{ "expr": "rate(jvm_gc_pause_seconds_sum{service=\"ms-robot-status\"}[5m])", "legendFormat": "{{gc}}" }],
+      "fieldConfig": { "defaults": { "unit": "s", "custom": { "showPoints": "never" } } }
+    },
+    {
+      "id": 15,
+      "title": "CPU Usage",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 23 },
+      "targets": [
+        { "expr": "process_cpu_usage{service=\"ms-robot-status\"}", "legendFormat": "process" },
+        { "expr": "system_cpu_usage{service=\"ms-robot-status\"}", "legendFormat": "system" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "percentunit", "custom": { "showPoints": "never" }, "max": 1 } }
+    },
+    {
+      "title": "Cache (Redis)",
+      "type": "row",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 31 },
+      "collapse": true
+    },
+    {
+      "id": 16,
+      "title": "Redis Command Rate",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 32 },
+      "targets": [{ "expr": "rate(redis_commands_total{service=\"ms-robot-status\"}[5m])", "legendFormat": "commands" }],
+      "fieldConfig": { "defaults": { "unit": "ops", "custom": { "showPoints": "never" } } }
+    },
+    {
+      "id": 17,
+      "title": "Cache Hits vs Misses",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 32 },
+      "targets": [
+        { "expr": "rate(redis_commands_total{service=\"ms-robot-status\",status=\"hit\"}[5m])", "legendFormat": "hits" },
+        { "expr": "rate(redis_commands_total{service=\"ms-robot-status\",status=\"miss\"}[5m])", "legendFormat": "misses" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "ops", "custom": { "showPoints": "never" } } }
+    },
+    {
+      "id": 18,
+      "title": "Redis Connected Clients",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 4, "x": 16, "y": 32 },
+      "targets": [{ "expr": "redis_connected_clients{service=\"ms-robot-status\"}", "legendFormat": "clients" }],
+      "fieldConfig": { "defaults": { "unit": "none" } },
+      "options": { "colorMode": "value", "graphMode": "none", "textMode": "auto" }
+    },
+    {
+      "title": "Logs (Loki)",
+      "type": "row",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 36 },
+      "collapse": true
+    },
+    {
+      "id": 19,
+      "title": "Recent Logs",
+      "type": "logs",
+      "gridPos": { "h": 12, "w": 24, "x": 0, "y": 37 },
+      "datasource": "Loki",
+      "targets": [{ "expr": "{service_name=\"ms-robot-status\"}", "legendFormat": "" }],
+      "options": { "showTime": true, "showLabels": true, "wrapLogMessage": true }
+    }
+  ],
+  "links": [
+    { "title": "Global Dashboard", "type": "dashboards", "targetBlank": true },
+    { "title": "Jaeger (ms-robot-status)", "type": "link", "url": "http://localhost:16686/search?service=ms-robot-status", "targetBlank": true },
+    { "title": "Loki Explore", "type": "link", "url": "http://localhost:3001/explore?orgId=1&left=%5B%22now-1h%22,%22now%22,%22Loki%22,%7B%22expr%22:%22%7Bservice_name%3D%5C%22ms-robot-status%5C%22%7D%22%7D%5D", "targetBlank": true }
+  ]
+}

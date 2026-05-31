@@ -1,25 +1,16 @@
 package com.smartlogistics.robotstatus.domain.model;
 
-import java.util.Objects;
-
-/**
- * Domain entity representing an autonomous warehouse robot.
- * Pure Java — zero framework imports.
- */
 public class Robot {
 
-    private String id;
-    private String name;
+    private final String id;
+    private final String name;
     private int batteryLevel;
     private boolean available;
     private String currentLocation;
-    private RobotStatus operationalMode;
-
-    public Robot() {
-    }
+    private String operationalMode;
 
     public Robot(String id, String name, int batteryLevel, boolean available,
-                 String currentLocation, RobotStatus operationalMode) {
+                 String currentLocation, String operationalMode) {
         this.id = id;
         this.name = name;
         this.batteryLevel = batteryLevel;
@@ -28,85 +19,18 @@ public class Robot {
         this.operationalMode = operationalMode;
     }
 
-    /**
-     * Domain rule: a robot is assignable only if battery >= 15% and is available.
-     */
-    public boolean isAssignable() {
-        return available && batteryLevel >= 15;
-    }
+    public String id() { return id; }
+    public String name() { return name; }
+    public int batteryLevel() { return batteryLevel; }
+    public boolean available() { return available; }
+    public String currentLocation() { return currentLocation; }
+    public String operationalMode() { return operationalMode; }
 
-    // --- Getters and Setters ---
-
-    public String getId() {
-        return id;
-    }
-
-    public void setId(String id) {
-        this.id = id;
-    }
-
-    public String getName() {
-        return name;
-    }
-
-    public void setName(String name) {
-        this.name = name;
-    }
-
-    public int getBatteryLevel() {
-        return batteryLevel;
-    }
-
-    public void setBatteryLevel(int batteryLevel) {
+    public void updateStatus(int batteryLevel, boolean available,
+                             String currentLocation, String operationalMode) {
         this.batteryLevel = batteryLevel;
-    }
-
-    public boolean isAvailable() {
-        return available;
-    }
-
-    public void setAvailable(boolean available) {
         this.available = available;
-    }
-
-    public String getCurrentLocation() {
-        return currentLocation;
-    }
-
-    public void setCurrentLocation(String currentLocation) {
         this.currentLocation = currentLocation;
-    }
-
-    public RobotStatus getOperationalMode() {
-        return operationalMode;
-    }
-
-    public void setOperationalMode(RobotStatus operationalMode) {
         this.operationalMode = operationalMode;
-    }
-
-    @Override
-    public boolean equals(Object o) {
-        if (this == o) return true;
-        if (o == null || getClass() != o.getClass()) return false;
-        Robot robot = (Robot) o;
-        return Objects.equals(id, robot.id);
-    }
-
-    @Override
-    public int hashCode() {
-        return Objects.hash(id);
-    }
-
-    @Override
-    public String toString() {
-        return "Robot{" +
-                "id='" + id + '\'' +
-                ", name='" + name + '\'' +
-                ", batteryLevel=" + batteryLevel +
-                ", available=" + available +
-                ", currentLocation='" + currentLocation + '\'' +
-                ", operationalMode=" + operationalMode +
-                '}';
     }
 }

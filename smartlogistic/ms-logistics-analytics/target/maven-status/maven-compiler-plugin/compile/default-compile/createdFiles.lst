@@ -1,0 +1,14 @@
+com\smartlogistics\analytics\application\service\AnalyticsService.class
+com\smartlogistics\analytics\domain\model\RouteEvent.class
+com\smartlogistics\analytics\SmartLogisticLogisticsAnalyticsApplication.class
+com\smartlogistics\analytics\application\port\in\ProcessRouteEventUseCase.class
+com\smartlogistics\analytics\infrastructure\adapter\in\amqp\RouteEventConsumer$RouteEventMessage.class
+com\smartlogistics\analytics\infrastructure\config\AnalyticsConfig.class
+com\smartlogistics\analytics\infrastructure\adapter\in\amqp\RouteEventConsumer.class
+com\smartlogistics\analytics\application\port\out\AnalyticsRepositoryPort.class
+com\smartlogistics\analytics\domain\model\CongestionSample.class
+com\smartlogistics\analytics\infrastructure\adapter\out\mongodb\RouteEventDocument.class
+com\smartlogistics\analytics\domain\model\PathPoint.class
+com\smartlogistics\analytics\infrastructure\adapter\out\mongodb\MongoRouteEventAdapter.class
+com\smartlogistics\analytics\domain\exception\EventProcessingException.class
+com\smartlogistics\analytics\infrastructure\config\BeanConfig.class

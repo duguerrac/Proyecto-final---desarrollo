@@ -4,44 +4,33 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.smartlogistics.warehouse.application.port.out.RouteEventPublisherPort;
 import com.smartlogistics.warehouse.domain.model.RouteCompletedEvent;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 @Component
 public class RabbitRouteEventPublisher implements RouteEventPublisherPort {
-    private static final Logger log = LoggerFactory.getLogger(RabbitRouteEventPublisher.class);
 
-    private final ObjectMapper objectMapper;
+    static final String EXCHANGE = "logistics.exchange";
+    static final String ROUTING_KEY = "route.completed";
+
     private final RabbitTemplate rabbitTemplate;
-    private final String exchange;
-    private final String routingKey;
+    private final ObjectMapper objectMapper;
 
-    public RabbitRouteEventPublisher(ObjectMapper objectMapper,
-                                     RabbitTemplate rabbitTemplate,
-                                     @Value("${rabbitmq.exchange:logistics.exchange}") String exchange,
-                                     @Value("${rabbitmq.routing-key.route-completed:route.completed}") String routingKey) {
-        this.objectMapper = objectMapper;
+    public RabbitRouteEventPublisher(RabbitTemplate rabbitTemplate, ObjectMapper objectMapper) {
         this.rabbitTemplate = rabbitTemplate;
-        this.exchange = exchange;
-        this.routingKey = routingKey;
+        this.objectMapper = objectMapper;
     }
 
     @Override
     public void publish(RouteCompletedEvent event) {
         try {
-            String payload = objectMapper.writeValueAsString(event);
-            rabbitTemplate.convertAndSend(exchange, routingKey, payload);
-            log.info("[RabbitMQ] Published route.completed event: {}", payload);
+            publishPayload(objectMapper.writeValueAsString(event));
         } catch (JsonProcessingException ex) {
             throw new IllegalStateException("Could not serialize route event", ex);
         }
     }
 
-    public void publishPayload(String payload) {
-        rabbitTemplate.convertAndSend(exchange, routingKey, payload);
-        log.info("[RabbitMQ] Published outbox payload: {}", payload);
+    void publishPayload(String payload) {
+        rabbitTemplate.convertAndSend(EXCHANGE, ROUTING_KEY, payload);
     }
 }
