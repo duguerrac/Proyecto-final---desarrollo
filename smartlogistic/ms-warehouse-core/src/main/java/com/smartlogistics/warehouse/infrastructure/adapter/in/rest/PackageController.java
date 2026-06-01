@@ -12,6 +12,7 @@ import com.smartlogistics.warehouse.infrastructure.adapter.out.postgres.reposito
 import com.smartlogistics.warehouse.infrastructure.adapter.out.postgres.repository.SpotJpaRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.amqp.rabbit.annotation.Queue;
 import org.springframework.amqp.rabbit.annotation.RabbitListener;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.beans.factory.annotation.Value;
@@ -53,7 +54,7 @@ public class PackageController {
 
     // ─── RabbitMQ Listeners (replacing NATS subscriptions) ───
 
-    @RabbitListener(queues = "${rabbitmq.queue.package-taken:package.taken}")
+    @RabbitListener(queuesToDeclare = @Queue(name = "package.taken", durable = "true"))
     public void onPackageTaken(String json) {
         log.info("[RabbitMQ] package.taken received: {}", json);
         try {
@@ -72,7 +73,7 @@ public class PackageController {
         }
     }
 
-    @RabbitListener(queues = "${rabbitmq.queue.package-delivered:package.delivered}")
+    @RabbitListener(queuesToDeclare = @Queue(name = "package.delivered", durable = "true"))
     public void onPackageDelivered(String json) {
         log.info("[RabbitMQ] package.delivered received: {}", json);
         try {
