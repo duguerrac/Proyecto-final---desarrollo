@@ -121,3 +121,8 @@ struct FRobotMissionData
     /** Whether this robot has an active mission */
     bool IsActive() const { return PackageId > 0 && !MissionType.IsEmpty(); }
 };
+
+/**
+ * Delegate fired when a robot status update is received.
+ */
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnRobotStatusReceived, const FSmartLogisticRobotData&, RobotData);
