@@ -16,4 +16,5 @@ public interface SpotJpaRepository extends JpaRepository<SpotJpaEntity, Long> {
 
     Optional<SpotJpaEntity> findByCode(String code);
     List<SpotJpaEntity> findByAisle(String aisle);
+    List<SpotJpaEntity> findByRootPointId(Long rootPointId);
 }

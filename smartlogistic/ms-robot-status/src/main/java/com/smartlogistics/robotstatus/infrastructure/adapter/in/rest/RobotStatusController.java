@@ -5,11 +5,14 @@ import com.smartlogistics.robotstatus.application.port.in.GetRobotStatusUseCase;
 import com.smartlogistics.robotstatus.application.port.in.RegisterRobotUseCase;
 import com.smartlogistics.robotstatus.domain.exception.RobotNotFoundException;
 import com.smartlogistics.robotstatus.domain.model.Robot;
+import com.smartlogistics.robotstatus.infrastructure.adapter.out.sse.SseTelemetryAdapter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.util.List;
 
@@ -22,13 +25,16 @@ public class RobotStatusController {
     private final GetRobotStatusUseCase getRobotStatus;
     private final RegisterRobotUseCase registerRobot;
     private final DispatchRobotUseCase dispatchRobot;
+    private final SseTelemetryAdapter sseTelemetryAdapter;
 
     public RobotStatusController(GetRobotStatusUseCase getRobotStatus,
                                  RegisterRobotUseCase registerRobot,
-                                 DispatchRobotUseCase dispatchRobot) {
+                                 DispatchRobotUseCase dispatchRobot,
+                                 SseTelemetryAdapter sseTelemetryAdapter) {
         this.getRobotStatus = getRobotStatus;
         this.registerRobot = registerRobot;
         this.dispatchRobot = dispatchRobot;
+        this.sseTelemetryAdapter = sseTelemetryAdapter;
     }
 
     // ── Simulation → Backend: Register a new robot ──────────────────────
@@ -99,6 +105,14 @@ public class RobotStatusController {
                 .map(RobotResponse::from)
                 .toList();
         return ResponseEntity.ok(response);
+    }
+
+    // ── SSE Telemetry Stream ────────────────────────────────────────────
+
+    @GetMapping(value = "/telemetry/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public SseEmitter streamTelemetry() {
+        log.info("[SSE] New telemetry stream client connected");
+        return sseTelemetryAdapter.createEmitter();
     }
 
     // ── Error handling ──────────────────────────────────────────────────

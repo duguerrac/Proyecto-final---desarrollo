@@ -133,8 +133,8 @@ public class PackageController {
             "{\"packageId\":%d,\"sku\":\"%s\",\"itemId\":%d,\"quantity\":%d,\"receptionSpotCode\":\"%s\",\"targetSpotCode\":\"%s\"}",
             pkg.getId(), pkg.getSku(), pkg.getItemId(), pkg.getQuantity(),
             pkg.getReceptionSpotCode(), pkg.getTargetSpotCode());
-        rabbitTemplate.convertAndSend(exchange, "package.received", payload);
-        log.info("[RabbitMQ] Published package.received: {}", payload);
+        rabbitTemplate.convertAndSend(exchange, "package.dispatched", payload);
+        log.info("[RabbitMQ] Published package.dispatched: {}", payload);
 
         return ResponseEntity.ok(toResponse(pkg));
     }

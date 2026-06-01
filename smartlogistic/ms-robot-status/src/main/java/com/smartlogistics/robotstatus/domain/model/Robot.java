@@ -69,8 +69,13 @@ public class Robot {
      */
     public void updateTelemetry(int batteryLevel, String currentLocation, String operationalMode) {
         this.batteryLevel = batteryLevel;
-        this.currentLocation = currentLocation;
-        this.operationalMode = operationalMode;
+        // Only update location if the telemetry provides a non-empty value
+        if (currentLocation != null && !currentLocation.isEmpty()) {
+            this.currentLocation = currentLocation;
+        }
+        if (operationalMode != null && !operationalMode.isEmpty()) {
+            this.operationalMode = operationalMode;
+        }
     }
 
     @Override

@@ -56,23 +56,23 @@ void AWarehouseEnvironment::BeginPlay()
         }
 
         FWarehouseLayoutData LayoutData;
-        LayoutData.LayoutId = RootObj->GetIntegerField("id");
-        LayoutData.LayoutName = RootObj->GetStringField("name");
-        LayoutData.Rows = RootObj->GetIntegerField("rows");
-        LayoutData.Cols = RootObj->GetIntegerField("cols");
-        LayoutData.CellSize = (float)RootObj->GetNumberField("cellSize");
-        LayoutData.Status = RootObj->GetStringField("status");
+        LayoutData.LayoutId = RootObj->GetIntegerField(TEXT("id"));
+        LayoutData.LayoutName = RootObj->GetStringField(TEXT("name"));
+        LayoutData.Rows = RootObj->GetIntegerField(TEXT("rows"));
+        LayoutData.Cols = RootObj->GetIntegerField(TEXT("cols"));
+        LayoutData.CellSize = (float)RootObj->GetNumberField(TEXT("cellSize"));
+        LayoutData.Status = RootObj->GetStringField(TEXT("status"));
 
         const TArray<TSharedPtr<FJsonValue>>* CellsArr;
-        if (RootObj->TryGetArrayField("cells", CellsArr))
+        if (RootObj->TryGetArrayField(TEXT("cells"), CellsArr))
         {
             for (const auto& CellVal : *CellsArr)
             {
                 TSharedPtr<FJsonObject> CellObj = CellVal->AsObject();
                 FLayoutCell Cell;
-                Cell.RowIndex = CellObj->GetIntegerField("rowIndex");
-                Cell.ColIndex = CellObj->GetIntegerField("colIndex");
-                Cell.CellType = CellObj->GetStringField("cellType");
+                Cell.RowIndex = CellObj->GetIntegerField(TEXT("rowIndex"));
+                Cell.ColIndex = CellObj->GetIntegerField(TEXT("colIndex"));
+                Cell.CellType = CellObj->GetStringField(TEXT("cellType"));
                 LayoutData.Cells.Add(Cell);
             }
         }

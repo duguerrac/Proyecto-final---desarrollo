@@ -76,10 +76,22 @@ void UHttpRobotClient::SendTelemetryBatch(const FString& JsonBatchPayload)
 
 void UHttpRobotClient::PublishEvent(const FString& EventType, const FString& JsonPayload)
 {
-    // Events are now published via the REST API or RabbitMQ by the backend.
-    // The simulation publishes telemetry → backend publishes to RabbitMQ.
-    // This is kept for backward compat but logs a note.
-    UE_LOG(LogTemp, Verbose, TEXT("[HttpRobotClient] PublishEvent: %s -> %s"), *EventType, *JsonPayload.Left(200));
+    if (ApiBaseUrl.IsEmpty()) return;
+
+    // Publish mission events to the robot-status backend
+    FString Url = FString::Printf(TEXT("%s/api/robots/events"), *ApiBaseUrl);
+    FString Body = FString::Printf(TEXT("{\"eventType\":\"%s\",\"payload\":%s}"), *EventType, *JsonPayload);
+    MakeRequest(TEXT("POST"), Url, Body, [EventType](int32 Code, const FString& Body)
+    {
+        if (Code == 200)
+        {
+            UE_LOG(LogTemp, Log, TEXT("[HttpRobotClient] Event %s published OK"), *EventType);
+        }
+        else
+        {
+            UE_LOG(LogTemp, Warning, TEXT("[HttpRobotClient] Event %s FAILED (HTTP %d)"), *EventType, Code);
+        }
+    });
 }
 
 void UHttpRobotClient::NotifyRouteComplete(const FString& RobotId)
@@ -100,15 +112,103 @@ void UHttpRobotClient::NotifyRouteComplete(const FString& RobotId)
     });
 }
 
+void UHttpRobotClient::SetWarehouseUrl(const FString& InWarehouseUrl)
+{
+    WarehouseApiUrl = InWarehouseUrl;
+    while (WarehouseApiUrl.EndsWith(TEXT("/")))
+    {
+        WarehouseApiUrl.RemoveAt(WarehouseApiUrl.Len() - 1);
+    }
+    UE_LOG(LogTemp, Log, TEXT("[HttpRobotClient] Warehouse URL set: %s"), *WarehouseApiUrl);
+}
+
 void UHttpRobotClient::PollForCommands()
 {
-    // Currently the backend dispatches commands via RabbitMQ subscribers.
-    // The simulation doesn't need to poll — missions arrive via the RabbitMQ 
-    // subscribers in the Java backend which then get exposed via REST events.
-    // 
-    // Future: Add SSE or WebSocket endpoint in ms-robot-status for real-time commands.
-    // For now, mission dispatching is handled by the backend consuming from RabbitMQ
-    // and the simulation picks up state changes via telemetry polling.
+    if (!bIsPolling) return;
+
+    PollForPendingPackages();
+    PollForRobotCommands();
+}
+
+void UHttpRobotClient::PollForPendingPackages()
+{
+    if (WarehouseApiUrl.IsEmpty()) return;
+
+    // Poll GET /api/packages/status/RECEIVED from warehouse-core
+    FString Url = FString::Printf(TEXT("%s/api/packages/status/RECEIVED"), *WarehouseApiUrl);
+
+    MakeRequest(TEXT("GET"), Url, TEXT(""), [this](int32 Code, const FString& Body)
+    {
+        if (!bIsPolling) return;
+        if (Code != 200 || Body.IsEmpty()) return;
+
+        // Parse JSON array of packages
+        TArray<TSharedPtr<FJsonValue>> Packages;
+        TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(Body);
+        if (!FJsonSerializer::Deserialize(Reader, Packages) || !Packages.Num())
+        {
+            return;
+        }
+
+        for (const TSharedPtr<FJsonValue>& PkgVal : Packages)
+        {
+            TSharedPtr<FJsonObject> Pkg = PkgVal->AsObject();
+            if (!Pkg.IsValid()) continue;
+
+            int64 PackageId = Pkg->GetIntegerField(TEXT("id"));
+            if (ProcessedPackageIds.Contains(PackageId)) continue;
+
+            // Mark as processed to avoid duplicates
+            ProcessedPackageIds.Add(PackageId);
+
+            FString Sku = Pkg->GetStringField(TEXT("sku"));
+            int32 Quantity = Pkg->GetIntegerField(TEXT("quantity"));
+            FString ReceptionSpot = Pkg->GetStringField(TEXT("receptionSpotCode"));
+            FString TargetSpot = Pkg->GetStringField(TEXT("targetSpotCode"));
+
+            UE_LOG(LogTemp, Log, TEXT("[HttpRobotClient] 📦 Package #%lld RECEIVED (SKU=%s) → %s → %s"),
+                PackageId, *Sku, *ReceptionSpot, *TargetSpot);
+
+            // Broadcast to RobotManager
+            OnPackageReceived.Broadcast(PackageId, Sku, Quantity, ReceptionSpot, TargetSpot);
+        }
+    });
+}
+
+void UHttpRobotClient::PollForRobotCommands()
+{
+    if (ApiBaseUrl.IsEmpty()) return;
+
+    // Poll all robots to check for assigned missions
+    FString Url = FString::Printf(TEXT("%s/api/robots"), *ApiBaseUrl);
+
+    MakeRequest(TEXT("GET"), Url, TEXT(""), [this](int32 Code, const FString& Body)
+    {
+        if (!bIsPolling) return;
+        if (Code != 200 || Body.IsEmpty()) return;
+
+        TArray<TSharedPtr<FJsonValue>> Robots;
+        TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(Body);
+        if (!FJsonSerializer::Deserialize(Reader, Robots)) return;
+
+        for (const TSharedPtr<FJsonValue>& RobotVal : Robots)
+        {
+            TSharedPtr<FJsonObject> Robot = RobotVal->AsObject();
+            if (!Robot.IsValid()) continue;
+
+            FString RobotId = Robot->GetStringField(TEXT("robotId"));
+            FString Mode = Robot->GetStringField(TEXT("operationalMode"));
+            FString Location = Robot->GetStringField(TEXT("currentLocation"));
+            bool bAvailable = Robot->GetBoolField(TEXT("available"));
+
+            // If robot is not available and mode is MISSION, it has an active command
+            if (!bAvailable && Mode == TEXT("MISSION"))
+            {
+                UE_LOG(LogTemp, Verbose, TEXT("[HttpRobotClient] Robot %s on MISSION at %s"), *RobotId, *Location);
+                // The mission details are handled via the package flow
+            }
+        }
+    });
 }
 
 void UHttpRobotClient::MakeRequest(const FString& Method, const FString& Url, const FString& Body,

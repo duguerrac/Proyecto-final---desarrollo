@@ -45,6 +45,9 @@ public:
     /** Initialize with the robot-status API base URL (e.g., "http://localhost:8082") */
     void Initialize(const FString& InApiBaseUrl);
 
+    /** Set the warehouse-core API URL for package polling */
+    void SetWarehouseUrl(const FString& InWarehouseUrl);
+
     /** Start polling for commands. Call after Initialize(). */
     void StartPolling();
 
@@ -65,6 +68,9 @@ public:
 
     /** Notify backend that a robot completed its route */
     void NotifyRouteComplete(const FString& RobotId);
+
+    /** Perform one poll cycle (called by RobotManager from Tick) */
+    void PollForCommands();
 
     /** Delegate: command received for a robot */
     UPROPERTY(BlueprintAssignable, Category = "SmartLogistics")
@@ -94,8 +100,14 @@ private:
     /** How often to poll for commands (seconds) */
     float PollInterval = 1.0f;
 
-    /** Internal: perform one poll cycle */
-    void PollForCommands();
+    /** Set of package IDs already processed (avoid duplicates) */
+    TSet<int64> ProcessedPackageIds;
+
+    /** Poll for RECEIVED packages from warehouse-core API */
+    void PollForPendingPackages();
+
+    /** Poll for robot status/command changes */
+    void PollForRobotCommands();
 
     /** Internal: make an HTTP request */
     void MakeRequest(const FString& Method, const FString& Url, const FString& Body,

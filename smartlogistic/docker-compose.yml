@@ -90,8 +90,12 @@ services:
     ports:
       - "${RABBITMQ_PORT:-5672}:5672"
       - "${RABBITMQ_MGMT_PORT:-15672}:15672"
+      - "${RABBITMQ_STOMP_PORT:-15674}:15674"
+    environment:
+      RABBITMQ_ENABLED_PLUGINS_FILE: "/etc/rabbitmq/enabled_plugins"
     volumes:
       - rabbitmq_data:/var/lib/rabbitmq
+      - ./rabbitmq/enabled_plugins:/etc/rabbitmq/enabled_plugins:ro
     healthcheck:
       test: ["CMD", "rabbitmq-diagnostics", "ping"]
       interval: 15s

@@ -10,19 +10,22 @@ import org.springframework.web.bind.annotation.*;
 import java.util.*;
 
 @RestController
-@RequestMapping("/api/v1/warehouse/spots")
+@RequestMapping("/api/spots")
 public class SpotController {
 
     private final SpotJpaRepository spotRepo;
     private final SpotItemJpaRepository spotItemRepo;
     private final InventoryItemJpaRepository itemRepo;
+    private final RootPointJpaRepository rootPointRepo;
 
     public SpotController(SpotJpaRepository spotRepo,
                           SpotItemJpaRepository spotItemRepo,
-                          InventoryItemJpaRepository itemRepo) {
+                          InventoryItemJpaRepository itemRepo,
+                          RootPointJpaRepository rootPointRepo) {
         this.spotRepo = spotRepo;
         this.spotItemRepo = spotItemRepo;
         this.itemRepo = itemRepo;
+        this.rootPointRepo = rootPointRepo;
     }
 
     /** GET /api/v1/warehouse/spots — list all spots with items */
@@ -83,6 +86,26 @@ public class SpotController {
         return ResponseEntity.ok(new SpotItemDTO(
                 item.getId(), item.getName(), item.getSku(),
                 spotItem.getQuantityAvailable()));
+    }
+
+    /** GET /api/v1/warehouse/spots/by-cell/{row}/{col}/items — items in all spots at a grid cell */
+    @GetMapping("/by-cell/{row}/{col}/items")
+    public ResponseEntity<List<SpotItemDTO>> getItemsByCell(
+            @PathVariable int row, @PathVariable int col) {
+
+        String code = "RP_" + row + "_" + col;
+        Optional<RootPointJpaEntity> rpOpt = rootPointRepo.findByCode(code);
+        if (rpOpt.isEmpty()) return ResponseEntity.ok(Collections.emptyList());
+
+        Long rpId = rpOpt.get().getId();
+        List<SpotJpaEntity> spots = spotRepo.findByRootPointId(rpId);
+        if (spots.isEmpty()) return ResponseEntity.ok(Collections.emptyList());
+
+        List<SpotItemDTO> allItems = new ArrayList<>();
+        for (SpotJpaEntity spot : spots) {
+            allItems.addAll(buildItemDTOs(spot.getId()));
+        }
+        return ResponseEntity.ok(allItems);
     }
 
     // ── helpers ──────────────────────────────────────────────

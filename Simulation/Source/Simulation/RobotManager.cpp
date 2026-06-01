@@ -92,13 +92,25 @@ void ARobotManager::Tick(float DeltaTime)
 {
     Super::Tick(DeltaTime);
 
-    if (TelemetryInterval > 0.0f && HttpClient && HttpClient->IsConnected())
+    if (HttpClient && HttpClient->IsConnected())
     {
-        LastTelemetryTime += DeltaTime;
-        if (LastTelemetryTime >= TelemetryInterval)
+        // Poll for pending packages/commands
+        LastPollTime += DeltaTime;
+        if (LastPollTime >= PollInterval)
         {
-            LastTelemetryTime = 0.0f;
-            PublishTelemetry();
+            LastPollTime = 0.0f;
+            HttpClient->PollForCommands();
+        }
+
+        // Publish telemetry
+        if (TelemetryInterval > 0.0f)
+        {
+            LastTelemetryTime += DeltaTime;
+            if (LastTelemetryTime >= TelemetryInterval)
+            {
+                LastTelemetryTime = 0.0f;
+                PublishTelemetry();
+            }
         }
     }
 
@@ -117,21 +129,57 @@ void ARobotManager::ConnectToBackend()
     if (HttpClient)
     {
         HttpClient->Initialize(RobotApiUrl);
+        HttpClient->SetWarehouseUrl(WarehouseApiUrl);
         HttpClient->OnRobotCommandReceived.AddDynamic(this, &ARobotManager::HandleRobotCommand);
         HttpClient->OnMissionCommandReceived.AddDynamic(this, &ARobotManager::HandleMissionCommand);
         HttpClient->OnPackageReceived.AddDynamic(this, &ARobotManager::HandlePackageReceived);
         HttpClient->StartPolling();
         bIsBackendConnected = true;
-        UE_LOG(LogTemp, Log, TEXT("[RobotManager] HTTP client created and connected to %s"), *RobotApiUrl);
+        UE_LOG(LogTemp, Log, TEXT("[RobotManager] HTTP client created and connected to %s (warehouse: %s)"), *RobotApiUrl, *WarehouseApiUrl);
     }
     else
     {
         UE_LOG(LogTemp, Error, TEXT("[RobotManager] Failed to create HTTP client!"));
     }
+
+    // Connect to RabbitMQ via STOMP-over-WebSocket for real-time events
+    if (!RabbitStompUrl.IsEmpty())
+    {
+        StompClient = NewObject<UStompClient>(this, TEXT("StompClient"));
+        if (StompClient)
+        {
+            StompClient->OnMessageReceived.AddDynamic(this, &ARobotManager::HandleStompMessage);
+            StompClient->Connect(RabbitStompUrl, TEXT("guest"), TEXT("guest"));
+
+            // Subscribe to relevant queues after a short delay (wait for STOMP CONNECTED)
+            FTimerHandle StompSubTimer;
+            GetWorldTimerManager().SetTimer(StompSubTimer, [this]()
+            {
+                if (StompClient && StompClient->IsConnected())
+                {
+                    StompClient->Subscribe(TEXT("robot.command"), TEXT("auto"));
+                    StompClient->Subscribe(TEXT("order.dispatch"), TEXT("auto"));
+                    StompClient->Subscribe(TEXT("package.dispatch"), TEXT("auto"));
+                    UE_LOG(LogTemp, Log, TEXT("[RobotManager] Subscribed to STOMP queues"));
+                }
+                else
+                {
+                    UE_LOG(LogTemp, Warning, TEXT("[RobotManager] STOMP not connected yet, skipping subscriptions"));
+                }
+            }, 3.0f, false);
+
+            UE_LOG(LogTemp, Log, TEXT("[RobotManager] STOMP client connecting to %s"), *RabbitStompUrl);
+        }
+    }
 }
 
 void ARobotManager::DisconnectFromBackend()
 {
+    if (StompClient)
+    {
+        StompClient->Disconnect();
+        StompClient = nullptr;
+    }
     if (HttpClient)
     {
         HttpClient->Disconnect();
@@ -383,6 +431,56 @@ void ARobotManager::FetchAndApplyWarehouseLayout()
     });
 
     Request->ProcessRequest();
+}
+
+void ARobotManager::HandleStompMessage(const FString& Destination, const FString& Body)
+{
+    TotalEventsReceived++;
+    UE_LOG(LogTemp, Log, TEXT("[RobotManager] STOMP message on '%s': %s"), *Destination, *Body.Left(500));
+
+    TSharedPtr<FJsonObject> RootObj;
+    TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(Body);
+
+    if (!FJsonSerializer::Deserialize(Reader, RootObj) || !RootObj.IsValid())
+    {
+        UE_LOG(LogTemp, Warning, TEXT("[RobotManager] Failed to parse STOMP message JSON from '%s'"), *Destination);
+        return;
+    }
+
+    // Route based on STOMP destination
+    if (Destination.Contains(TEXT("robot.command")))
+    {
+        FString RobotId = RootObj->GetStringField(TEXT("robotId"));
+        FString Command = RootObj->GetStringField(TEXT("command"));
+        FString Target = RootObj->HasField(TEXT("targetLocation")) ? RootObj->GetStringField(TEXT("targetLocation")) : TEXT("");
+        HandleRobotCommand(RobotId, Command, Target);
+    }
+    else if (Destination.Contains(TEXT("order.dispatch")))
+    {
+        FString RobotId = RootObj->GetStringField(TEXT("robotId"));
+        int64 PackageId = static_cast<int64>(RootObj->GetNumberField(TEXT("packageId")));
+        FString MissionType = RootObj->GetStringField(TEXT("missionType"));
+        FString ReceptionSpot = RootObj->GetStringField(TEXT("receptionSpotCode"));
+        FString TargetSpot = RootObj->GetStringField(TEXT("targetSpotCode"));
+        FString ItemSku = RootObj->HasField(TEXT("itemSku")) ? RootObj->GetStringField(TEXT("itemSku")) : TEXT("");
+        int32 Quantity = RootObj->HasField(TEXT("quantity")) ? RootObj->GetIntegerField(TEXT("quantity")) : 0;
+
+        HandleMissionCommand(RobotId, PackageId, MissionType, ReceptionSpot, TargetSpot, ItemSku, Quantity);
+    }
+    else if (Destination.Contains(TEXT("package.dispatch")))
+    {
+        int64 PackageId = static_cast<int64>(RootObj->GetNumberField(TEXT("packageId")));
+        FString Sku = RootObj->GetStringField(TEXT("sku"));
+        int32 Quantity = RootObj->GetIntegerField(TEXT("quantity"));
+        FString ReceptionSpot = RootObj->GetStringField(TEXT("receptionSpotCode"));
+        FString TargetSpot = RootObj->GetStringField(TEXT("targetSpotCode"));
+
+        HandlePackageReceived(PackageId, Sku, Quantity, ReceptionSpot, TargetSpot);
+    }
+    else
+    {
+        UE_LOG(LogTemp, Verbose, TEXT("[RobotManager] Unhandled STOMP destination: %s"), *Destination);
+    }
 }
 
 void ARobotManager::ApplyWarehouseLayoutFromJson(const FString& JsonString)

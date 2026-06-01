@@ -6,6 +6,7 @@
 #include "GameFramework/Actor.h"
 #include "RobotTypes.h"
 #include "HttpRobotClient.h"
+#include "StompClient.h"
 #include "RobotManager.generated.h"
 
 class AWarehouseRobot;
@@ -37,6 +38,10 @@ public:
     /** Warehouse Core API URL (no trailing slash). */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SmartLogistics|Config")
     FString WarehouseApiUrl = TEXT("http://localhost:8081");
+
+    /** RabbitMQ Web STOMP URL (e.g. ws://localhost:15674/ws). */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SmartLogistics|Config")
+    FString RabbitStompUrl = TEXT("ws://localhost:15674/ws");
 
     /** How many robot slots to pre-allocate in the scene. */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SmartLogistics|Config",
@@ -88,6 +93,15 @@ public:
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "SmartLogistics|Telemetry")
     float LastTelemetryTime = 0.0f;
 
+    /** How often to poll for pending packages/commands (seconds). */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SmartLogistics|Polling",
+              meta = (ClampMin = "0.5", ClampMax = "30.0"))
+    float PollInterval = 2.0f;
+
+    /** Last poll time */
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "SmartLogistics|Polling")
+    float LastPollTime = 0.0f;
+
     // ─── Actions ─────────────────────────────────────────────────
 
     /** Connect to backend APIs (called automatically in BeginPlay). */
@@ -128,6 +142,10 @@ private:
     /** HTTP REST client instance. */
     UPROPERTY()
     UHttpRobotClient* HttpClient;
+
+    /** STOMP-over-WebSocket client for real-time RabbitMQ events. */
+    UPROPERTY()
+    UStompClient* StompClient;
 
     /** Map robot ID → robot actor instance. */
     UPROPERTY()
@@ -176,4 +194,8 @@ private:
      */
     void RequestRouteAndFollowWaypoints(AWarehouseRobot* Robot, const FString& FromCode, const FString& ToCode,
         bool bPickUpAtDestination = false);
+
+    /** Handle incoming STOMP message from RabbitMQ. */
+    UFUNCTION()
+    void HandleStompMessage(const FString& Destination, const FString& Body);
 };
