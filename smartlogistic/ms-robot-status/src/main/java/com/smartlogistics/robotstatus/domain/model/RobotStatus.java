@@ -6,6 +6,7 @@ package com.smartlogistics.robotstatus.domain.model;
 public enum RobotStatus {
     IDLE,
     MOVING,
+    PICKING,
     LOADING,
     UNLOADING,
     CHARGING,

@@ -61,9 +61,10 @@ public class RabbitTelemetrySubscriber {
                 int oldBattery = robot.getBatteryLevel();
                 robot.setBatteryLevel(batteryLevel);
 
+                String currentMode = robot.getOperationalMode();
                 if (batteryLevel < LOW_BATTERY_THRESHOLD && robot.isAvailable()
-                        && (robot.getOperationalMode() == RobotStatus.IDLE
-                        || robot.getOperationalMode() == RobotStatus.MOVING)) {
+                        && !RobotStatus.CHARGING.name().equals(currentMode)
+                        && !RobotStatus.ERROR.name().equals(currentMode)) {
 
                     log.info("🔋⚡ Robot {} battery LOW ({}%) — sending to charge station", robotId, batteryLevel);
 

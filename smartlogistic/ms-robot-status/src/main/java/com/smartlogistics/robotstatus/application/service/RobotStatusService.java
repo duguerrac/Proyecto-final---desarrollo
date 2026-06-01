@@ -57,9 +57,9 @@ public class RobotStatusService
 
     @Override
     public Robot saveRobot(Robot robot) {
-        Robot saved = robotCachePort.save(robot);
-        robotEventPort.publishStatusUpdate(saved);
-        return saved;
+        robotCachePort.save(robot);
+        robotEventPort.publishStatusUpdate(robot);
+        return robot;
     }
 
     @Override
