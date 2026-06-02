@@ -68,6 +68,15 @@ public:
     float StatusDisplayTimer = 0.0f;
     float StompReconnectTimer = 0.0f;
 
+    /** Current reconnect delay (increases with exponential backoff) */
+    float StompReconnectDelay = 5.0f;
+
+    /** Minimum reconnect delay (seconds) */
+    float StompReconnectMinDelay = 5.0f;
+
+    /** Maximum reconnect delay (seconds) */
+    float StompReconnectMaxDelay = 60.0f;
+
     /** Is the backend connected? */
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "SmartLogistics|Status")
     bool bIsBackendConnected = false;
@@ -178,6 +187,9 @@ private:
     void PublishMissionEvent(const FString& EventType, const FString& RobotId,
         int64 PackageId, const FString& SpotCode, const FString& MissionType);
 
+    /** Immediately notify backend of a robot state change (MOVING, PICKING, IDLE, etc.). */
+    void NotifyRobotStateChanged(AWarehouseRobot* Robot, const FString& NewMode);
+
     /** Find or create a robot actor for the given ID. */
     AWarehouseRobot* FindOrCreateRobot(const FSmartLogisticRobotData& Data);
 
@@ -212,4 +224,8 @@ private:
     /** Handle incoming STOMP message from RabbitMQ. */
     UFUNCTION()
     void HandleStompMessage(const FString& Destination, const FString& Body);
+
+    /** Called when STOMP session is established — subscribes to exchanges. */
+    UFUNCTION()
+    void OnStompConnected();
 };

@@ -566,6 +566,44 @@ FVector AWarehouseEnvironment::CellToWorldPosition(int32 Row, int32 Col) const
     return GetActorLocation() + FVector(X, Y, 0.0f);
 }
 
+FVector AWarehouseEnvironment::CellToNavigationPosition(int32 Row, int32 Col) const
+{
+    float CellSz = GetCellSize();
+    float OffsetAmount = CellSz * RobotNavOffsetFraction;
+
+    // Determine center of the grid
+    float CenterRow = 0.0f;
+    float CenterCol = 0.0f;
+    if (bUsingDynamicLayout && CurrentLayout.Rows > 0 && CurrentLayout.Cols > 0)
+    {
+        CenterRow = (CurrentLayout.Rows - 1) / 2.0f;
+        CenterCol = (CurrentLayout.Cols - 1) / 2.0f;
+    }
+
+    // Direction from this cell toward grid center (normalized)
+    float DirX = CenterRow - (float)Row;
+    float DirY = CenterCol - (float)Col;
+    float DirLen = FMath::Sqrt(DirX * DirX + DirY * DirY);
+
+    // For cells at the grid center (DirLen ≈ 0), offset toward the interior
+    // by checking which edge is closest and pushing away from it
+    if (DirLen < 0.01f)
+    {
+        // Already at center — no offset needed (center cells are safe)
+        return CellToWorldPosition(Row, Col);
+    }
+
+    // Normalize direction
+    DirX /= DirLen;
+    DirY /= DirLen;
+
+    // Apply offset toward center
+    FVector BasePos = CellToWorldPosition(Row, Col);
+    FVector Offset = FVector(DirX * OffsetAmount, DirY * OffsetAmount, 0.0f);
+
+    return BasePos + Offset;
+}
+
 void AWarehouseEnvironment::BuildFromLayout(const FWarehouseLayoutData& LayoutData)
 {
     UE_LOG(LogTemp, Log, TEXT("[Warehouse] Building dynamic layout: %s (%d x %d, cellSize=%.1f, %d cells)"),
@@ -928,8 +966,9 @@ bool AWarehouseEnvironment::GetSpotByCode(const FString& Code, FSpotData& OutSpo
 
 bool AWarehouseEnvironment::GetSpotPosition(const FString& SpotCode, FVector& OutPosition) const
 {
-    // 0) Root point codes: RP-Rxx-Cyy → parse row/col and use CellToWorldPosition
+    // 0) Root point codes: RP-Rxx-Cyy → parse row/col and use CellToNavigationPosition
     //    This is the primary resolution for route waypoints from the backend
+    //    Uses navigation offset to keep robots away from walls/shelves
     if (SpotCode.StartsWith(TEXT("RP-R")))
     {
         // Parse "RP-R02-C01" → Row=2, Col=1
@@ -941,7 +980,7 @@ bool AWarehouseEnvironment::GetSpotPosition(const FString& SpotCode, FVector& Ou
             FString ColStr = Code.RightChop(DashIdx + 2); // "01" (skip "-C")
             int32 Row = FCString::Atoi(*RowStr);
             int32 Col = FCString::Atoi(*ColStr);
-            OutPosition = CellToWorldPosition(Row, Col);
+            OutPosition = CellToNavigationPosition(Row, Col);
             UE_LOG(LogTemp, Log, TEXT("[Warehouse] GetSpotPosition: Root point '%s' → Row=%d Col=%d → %s"),
                 *SpotCode, Row, Col, *OutPosition.ToString());
             return true;
@@ -1121,7 +1160,7 @@ bool AWarehouseEnvironment::RootPointCodeToPosition(const FString& Code, FVector
             int32 Row = FCString::Atoi(*RowStr);
             int32 Col = FCString::Atoi(*ColStr);
 
-            OutPosition = CellToWorldPosition(Row, Col);
+            OutPosition = CellToNavigationPosition(Row, Col);
             UE_LOG(LogTemp, Log, TEXT("[Warehouse] RootPoint '%s' -> R=%d, C=%d -> %s"),
                 *Code, Row, Col, *OutPosition.ToString());
             return true;

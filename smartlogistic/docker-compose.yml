@@ -84,7 +84,7 @@ services:
       - smartlogistic-net
 
   rabbitmq:
-    image: rabbitmq:3.13-management-alpine
+    image: rabbitmq:3.13-management
     container_name: smartlogistic-rabbitmq
     restart: unless-stopped
     ports:

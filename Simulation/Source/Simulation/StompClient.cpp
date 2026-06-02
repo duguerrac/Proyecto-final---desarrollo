@@ -30,6 +30,7 @@ void UStompClient::Connect(const FString& Url, const FString& Login, const FStri
         return;
     }
 
+    bIsShuttingDown = false;
     bIsConnecting = true;
 
     // Clean up any stale/closed WebSocket from a previous session
@@ -54,10 +55,46 @@ void UStompClient::Connect(const FString& Url, const FString& Login, const FStri
     // Use overload without subprotocols - RabbitMQ Web STOMP works without them
     WebSocket = FWebSocketsModule::Get().CreateWebSocket(Url);
 
-    WebSocket->OnConnected().AddLambda([this]() { OnWsConnected(); });
-    WebSocket->OnConnectionError().AddLambda([this](const FString& Err) { OnWsConnectionError(Err); });
-    WebSocket->OnClosed().AddLambda([this](int32 Code, const FString& Reason, bool bClean) { OnWsClosed(Code, Reason, bClean); });
-    WebSocket->OnMessage().AddLambda([this](const FString& Msg) { OnWsMessage(Msg); });
+    if (!WebSocket.IsValid())
+    {
+        UE_LOG(LogTemp, Error, TEXT("[StompClient] Failed to create WebSocket — is the WebSockets plugin enabled in .uproject?"));
+        bIsConnecting = false;
+        return;
+    }
+
+    // Use TWeakObjectPtr to safely check if this UObject is still alive in callbacks.
+    // This prevents crashes when PIE stops and GC destroys the StompClient
+    // while the WebSocket still has pending async callbacks.
+    TWeakObjectPtr<UStompClient> WeakThis(this);
+
+    WebSocket->OnConnected().AddLambda([WeakThis]()
+    {
+        if (WeakThis.IsValid())
+        {
+            WeakThis->OnWsConnected();
+        }
+    });
+    WebSocket->OnConnectionError().AddLambda([WeakThis](const FString& Err)
+    {
+        if (WeakThis.IsValid())
+        {
+            WeakThis->OnWsConnectionError(Err);
+        }
+    });
+    WebSocket->OnClosed().AddLambda([WeakThis](int32 Code, const FString& Reason, bool bClean)
+    {
+        if (WeakThis.IsValid())
+        {
+            WeakThis->OnWsClosed(Code, Reason, bClean);
+        }
+    });
+    WebSocket->OnMessage().AddLambda([WeakThis](const FString& Msg)
+    {
+        if (WeakThis.IsValid())
+        {
+            WeakThis->OnWsMessage(Msg);
+        }
+    });
 
     UE_LOG(LogTemp, Log, TEXT("[StompClient] Connecting to %s ..."), *Url);
     WebSocket->Connect();
@@ -65,25 +102,32 @@ void UStompClient::Connect(const FString& Url, const FString& Login, const FStri
 
 void UStompClient::Disconnect()
 {
+    // Mark as shutting down FIRST to prevent any pending callbacks from accessing state
+    bIsShuttingDown = true;
+    bSessionConnected = false;
+    bIsConnecting = false;
+
+    // Stop heartbeat timer
+    if (UWorld* World = GetWorld())
+    {
+        World->GetTimerManager().ClearTimer(HeartbeatTimerHandle);
+    }
+
     if (!WebSocket.IsValid())
         return;
 
-    // Send DISCONNECT frame with receipt
+    // Send DISCONNECT frame with receipt (only if session was established)
     if (bSessionConnected)
     {
         TMap<FString, FString> Headers;
         Headers.Add(TEXT("receipt"), TEXT("disconnect-receipt"));
         SendFrame(TEXT("DISCONNECT"), Headers);
-        bSessionConnected = false;
     }
 
-    // Stop heartbeat
-    if (GEngine && GEngine->GetWorld() != nullptr)
-    {
-        GEngine->GetWorld()->GetTimerManager().ClearTimer(HeartbeatTimerHandle);
-    }
-
+    // Close the WebSocket — the OnClosed callback will fire but
+    // bIsShuttingDown prevents it from touching invalid state
     WebSocket->Close();
+
     Subscriptions.Empty();
     UE_LOG(LogTemp, Log, TEXT("[StompClient] Disconnected"));
 }
@@ -314,19 +358,38 @@ void UStompClient::HandleFrame(const FString& Command, const TMap<FString, FStri
                 {
                     HeartbeatIntervalMs = ServerCy;
                 }
+                // Server silence timeout = 3x the server's send interval (Cx)
+                // If server promises to send every Cx ms, we tolerate up to 3*Cx before declaring dead.
+                // Using 3x (instead of 2x) to account for network jitter and GC pauses in UE5.
+                if (ServerCx > 0)
+                {
+                    ServerSilenceTimeoutSec = FMath::Max(30.0f, (ServerCx * 3) / 1000.0f);
+                }
             }
         }
 
-        UE_LOG(LogTemp, Log, TEXT("[StompClient] CONNECTED — session established (heartbeat=%dms)"), HeartbeatIntervalMs);
+        // Record connection time as last server activity
+        LastServerActivityTime = GWorld ? GWorld->GetTimeSeconds() : 0.0f;
 
-        // Start heartbeat timer
-        UWorld* World = GEngine ? GEngine->GetWorld() : nullptr;
+        UE_LOG(LogTemp, Log, TEXT("[StompClient] CONNECTED — session established (heartbeat=%dms, silence_timeout=%.1fs)"),
+            HeartbeatIntervalMs, ServerSilenceTimeoutSec);
+
+        // Notify listeners that STOMP session is ready for subscriptions
+        OnConnected.Broadcast();
+
+        // Start heartbeat timer — use GetWorld() from outer chain (more reliable than GEngine->GetWorld())
+        UWorld* World = GetWorld();
         if (World && HeartbeatIntervalMs > 0)
         {
             World->GetTimerManager().SetTimer(HeartbeatTimerHandle, [this]()
             {
                 SendHeartbeat();
             }, HeartbeatIntervalMs / 1000.0f, true);
+        }
+        else
+        {
+            UE_LOG(LogTemp, Warning, TEXT("[StompClient] Cannot start heartbeat timer — GetWorld()=%s, interval=%dms"),
+                World ? TEXT("valid") : TEXT("NULL"), HeartbeatIntervalMs);
         }
 
         // Auto-resubscribe to saved subscriptions after reconnect
@@ -377,6 +440,8 @@ void UStompClient::HandleFrame(const FString& Command, const TMap<FString, FStri
 
 void UStompClient::OnWsConnected()
 {
+    if (bIsShuttingDown) return;
+
     UE_LOG(LogTemp, Log, TEXT("[StompClient] WebSocket connected, sending STOMP CONNECT..."));
 
     // Now send the STOMP CONNECT frame
@@ -390,14 +455,18 @@ void UStompClient::OnWsConnected()
         Headers.Add(TEXT("passcode"), LastPasscode);
     }
 
-    // Request heart-beat: we send every 10s, expect server every 10s
-    Headers.Add(TEXT("heart-beat"), TEXT("10000,10000"));
+    // Request heart-beat: we send every 30s, expect server every 30s.
+    // Using 30s instead of 10s reduces traffic and avoids Cowboy idle timeout issues
+    // (Cowboy's idle timeout is set to 300s in rabbitmq.conf, well above this interval).
+    Headers.Add(TEXT("heart-beat"), TEXT("30000,30000"));
 
     SendFrame(TEXT("CONNECT"), Headers);
 }
 
 void UStompClient::OnWsConnectionError(const FString& Error)
 {
+    if (bIsShuttingDown) return;
+
     UE_LOG(LogTemp, Error, TEXT("[StompClient] WebSocket connection error: %s"), *Error);
     bSessionConnected = false;
     bIsConnecting = false;
@@ -406,14 +475,21 @@ void UStompClient::OnWsConnectionError(const FString& Error)
 
 void UStompClient::OnWsClosed(int32 StatusCode, const FString& Reason, bool bWasClean)
 {
+    if (bIsShuttingDown)
+    {
+        // Expected close during shutdown — just clean up silently
+        WebSocket.Reset();
+        return;
+    }
+
     UE_LOG(LogTemp, Log, TEXT("[StompClient] WebSocket closed: %d (%s) clean=%s"),
         StatusCode, *Reason, bWasClean ? TEXT("yes") : TEXT("no"));
     bSessionConnected = false;
     bIsConnecting = false;
 
-    if (GEngine && GEngine->GetWorld())
+    if (UWorld* World = GetWorld())
     {
-        GEngine->GetWorld()->GetTimerManager().ClearTimer(HeartbeatTimerHandle);
+        World->GetTimerManager().ClearTimer(HeartbeatTimerHandle);
     }
 
     // Reset the WebSocket pointer so Connect() can create a fresh one
@@ -423,6 +499,14 @@ void UStompClient::OnWsClosed(int32 StatusCode, const FString& Reason, bool bWas
 
 void UStompClient::OnWsMessage(const FString& Message)
 {
+    if (bIsShuttingDown) return;
+
+    // Record server activity for heartbeat monitoring
+    if (UWorld* World = GetWorld())
+    {
+        LastServerActivityTime = World->GetTimeSeconds();
+    }
+
     ParseFrames(Message);
 }
 
@@ -430,7 +514,35 @@ void UStompClient::SendHeartbeat()
 {
     if (!WebSocket.IsValid() || !bSessionConnected) return;
 
-    // STOMP heartbeat is just a newline
-    WebSocket->Send(TEXT("\n"));
+    // Check if server has been silent for too long (heartbeat monitoring)
+    if (ServerSilenceTimeoutSec > 0.0f && LastServerActivityTime > 0.0f)
+    {
+        if (UWorld* World = GetWorld())
+        {
+            float Now = World->GetTimeSeconds();
+            float SilenceDuration = Now - LastServerActivityTime;
+            if (SilenceDuration > ServerSilenceTimeoutSec)
+            {
+                UE_LOG(LogTemp, Warning, TEXT("[StompClient] Server silent for %.1fs (timeout=%.1fs) — closing connection"),
+                    SilenceDuration, ServerSilenceTimeoutSec);
+                // Force close the WebSocket so RobotManager's reconnect logic kicks in
+                bSessionConnected = false;
+                if (UWorld* W = GetWorld())
+                {
+                    W->GetTimerManager().ClearTimer(HeartbeatTimerHandle);
+                }
+                WebSocket->Close(4000, TEXT("Heartbeat timeout — server silent"));
+                return;
+            }
+        }
+    }
+
+    // STOMP 1.2 heartbeat: send a NULL byte (0x00) as end-of-frame marker.
+    // This is the spec-compliant way — RabbitMQ Web STOMP recognizes both \n and \0,
+    // but \0 is more reliable across implementations.
+    FString HeartbeatFrame;
+    HeartbeatFrame.AppendChar(STOMP_NULL);
+    WebSocket->Send(HeartbeatFrame);
+    UE_LOG(LogTemp, Verbose, TEXT("[StompClient] Heartbeat sent (NULL frame)"));
 }
 

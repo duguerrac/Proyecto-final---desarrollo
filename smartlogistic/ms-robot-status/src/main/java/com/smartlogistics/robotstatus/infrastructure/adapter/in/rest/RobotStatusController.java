@@ -3,6 +3,7 @@ package com.smartlogistics.robotstatus.infrastructure.adapter.in.rest;
 import com.smartlogistics.robotstatus.application.port.in.DispatchRobotUseCase;
 import com.smartlogistics.robotstatus.application.port.in.GetRobotStatusUseCase;
 import com.smartlogistics.robotstatus.application.port.in.RegisterRobotUseCase;
+import com.smartlogistics.robotstatus.application.port.out.RobotDispatchPort;
 import com.smartlogistics.robotstatus.domain.exception.RobotNotFoundException;
 import com.smartlogistics.robotstatus.domain.model.Robot;
 import com.smartlogistics.robotstatus.infrastructure.adapter.out.sse.SseTelemetryAdapter;
@@ -16,6 +17,7 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.util.List;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api/robots")
@@ -26,17 +28,20 @@ public class RobotStatusController {
     private final GetRobotStatusUseCase getRobotStatus;
     private final RegisterRobotUseCase registerRobot;
     private final DispatchRobotUseCase dispatchRobot;
+    private final RobotDispatchPort robotDispatchPort;
     private final SseTelemetryAdapter sseTelemetryAdapter;
     private final ObjectMapper objectMapper;
 
     public RobotStatusController(GetRobotStatusUseCase getRobotStatus,
                                  RegisterRobotUseCase registerRobot,
                                  DispatchRobotUseCase dispatchRobot,
+                                 RobotDispatchPort robotDispatchPort,
                                  SseTelemetryAdapter sseTelemetryAdapter,
                                  ObjectMapper objectMapper) {
         this.getRobotStatus = getRobotStatus;
         this.registerRobot = registerRobot;
         this.dispatchRobot = dispatchRobot;
+        this.robotDispatchPort = robotDispatchPort;
         this.sseTelemetryAdapter = sseTelemetryAdapter;
         this.objectMapper = objectMapper;
     }
@@ -72,7 +77,7 @@ public class RobotStatusController {
                 request.currentLocation,
                 request.operationalMode
         );
-        Robot saved = registerRobot.register(robot); // save updates via cache
+        Robot saved = getRobotStatus.saveRobot(robot); // save + publish status event
 
         // Broadcast real-time SSE event to all connected clients
         try {
@@ -100,6 +105,61 @@ public class RobotStatusController {
     public ResponseEntity<Void> routeComplete(@PathVariable String id) {
         log.info("Robot {} completed route, marking available", id);
         dispatchRobot.markRobotAvailable(id);
+        return ResponseEntity.ok().build();
+    }
+
+    // ── Simulation → Backend: Mission events (package picked/delivered) ─
+
+    @PostMapping("/events")
+    public ResponseEntity<Void> receiveEvent(@RequestBody Map<String, Object> eventBody) {
+        String eventType = (String) eventBody.get("eventType");
+        if (eventType == null) {
+            log.warn("[Events] Received event without eventType");
+            return ResponseEntity.badRequest().build();
+        }
+
+        @SuppressWarnings("unchecked")
+        Map<String, Object> payload = (Map<String, Object>) eventBody.get("payload");
+        if (payload == null) {
+            payload = eventBody; // flat structure support
+        }
+
+        log.info("[Events] Received event: type={}, robotId={}, packageId={}",
+                eventType, payload.get("robotId"), payload.get("packageId"));
+
+        switch (eventType) {
+            case "MISSION_COMPLETED" -> {
+                String robotId = payload.get("robotId") != null ? payload.get("robotId").toString() : "";
+                Object pkgIdObj = payload.get("packageId");
+                String packageId = pkgIdObj != null ? pkgIdObj.toString() : "";
+                String missionType = payload.get("missionType") != null ? payload.get("missionType").toString() : "";
+                String spotCode = payload.get("spotCode") != null ? payload.get("spotCode").toString() : "";
+
+                if ("STOCK_IN".equals(missionType) || "STOCK_OUT".equals(missionType)) {
+                    // Package was delivered — publish package.delivered with mission context
+                    robotDispatchPort.publishPackageDelivered(packageId, missionType, spotCode);
+                    dispatchRobot.markRobotAvailable(robotId);
+                    log.info("[Events] Package #{} DELIVERED by robot {} (missionType={}) — marking available", packageId, robotId, missionType);
+                }
+            }
+            case "PACKAGE_PICKED" -> {
+                String robotId = payload.get("robotId") != null ? payload.get("robotId").toString() : "";
+                String packageId = payload.get("packageId") != null ? payload.get("packageId").toString() : "";
+                robotDispatchPort.publishPackageTaken(packageId, robotId);
+                log.info("[Events] Package #{} PICKED by robot {}", packageId, robotId);
+            }
+            case "PACKAGE_DELIVERED" -> {
+                String robotId = payload.get("robotId") != null ? payload.get("robotId").toString() : "";
+                String packageId = payload.get("packageId") != null ? payload.get("packageId").toString() : "";
+                String missionType = payload.get("missionType") != null ? payload.get("missionType").toString() : "";
+                String spotCode = payload.get("spotCode") != null ? payload.get("spotCode").toString() : "";
+                robotDispatchPort.publishPackageDelivered(packageId, missionType, spotCode);
+                dispatchRobot.markRobotAvailable(robotId);
+                log.info("[Events] Package #{} DELIVERED by robot {} (missionType={}) — marking available", packageId, robotId, missionType);
+            }
+            default -> log.debug("[Events] Unhandled event type: {}", eventType);
+        }
+
         return ResponseEntity.ok().build();
     }
 

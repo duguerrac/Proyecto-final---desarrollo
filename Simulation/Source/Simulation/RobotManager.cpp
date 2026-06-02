@@ -33,7 +33,7 @@ void ARobotManager::BeginPlay()
     if (GEngine)
     {
         FString ConnInfo = FString::Printf(
-            TEXT("🔗 SmartLogistics Simulation\n  Robot API: %s\n  Warehouse API: %s\n  STOMP: %s\n  MaxRobots: %d"),
+            TEXT("[SmartLogistics Simulation]\n  Robot API: %s\n  Warehouse API: %s\n  STOMP: %s\n  MaxRobots: %d"),
             *RobotApiUrl, *WarehouseApiUrl, *RabbitStompUrl, MaxRobots);
         GEngine->AddOnScreenDebugMessage(-1, 15.0f, FColor::White, *ConnInfo);
     }
@@ -96,6 +96,8 @@ void ARobotManager::BeginPlay()
 
 void ARobotManager::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
+    // Mark as shutting down first to prevent Tick from accessing destroyed state
+    bIsBackendConnected = false;
     DisconnectFromBackend();
     Super::EndPlay(EndPlayReason);
 }
@@ -103,6 +105,12 @@ void ARobotManager::EndPlay(const EEndPlayReason::Type EndPlayReason)
 void ARobotManager::Tick(float DeltaTime)
 {
     Super::Tick(DeltaTime);
+
+    // Skip all processing during shutdown (EndPlay already called DisconnectFromBackend)
+    if (!bIsBackendConnected && !HttpClient && !StompClient)
+    {
+        return;
+    }
 
     if (HttpClient && HttpClient->IsConnected())
     {
@@ -130,16 +138,48 @@ void ARobotManager::Tick(float DeltaTime)
 
     // Auto-reconnect STOMP if it drops (StompClient auto-resubscribes on CONNECTED)
     StompReconnectTimer += DeltaTime;
-    if (StompClient && !StompClient->IsConnected() && StompReconnectTimer >= 30.0f)
+    if (StompClient && !StompClient->IsConnected() && StompReconnectTimer >= StompReconnectDelay)
     {
         StompReconnectTimer = 0.0f;
-        UE_LOG(LogTemp, Warning, TEXT("[RobotManager] STOMP disconnected — attempting reconnect to %s"), *RabbitStompUrl);
+        UE_LOG(LogTemp, Warning, TEXT("[RobotManager] STOMP disconnected — attempting reconnect to %s (delay=%.1fs)"),
+            *RabbitStompUrl, StompReconnectDelay);
         if (GEngine)
         {
             GEngine->AddOnScreenDebugMessage(-1, 5.0f, FColor::Orange,
-                TEXT("⚠ STOMP disconnected — reconnecting..."));
+                FString::Printf(TEXT("[!] STOMP disconnected -- reconnecting (delay=%.1fs)..."), StompReconnectDelay));
         }
         StompClient->Connect(RabbitStompUrl, TEXT("guest"), TEXT("guest"));
+
+        // Exponential backoff: double the delay for next attempt, capped at max
+        StompReconnectDelay = FMath::Min(StompReconnectDelay * 2.0f, StompReconnectMaxDelay);
+    }
+
+    // Reset reconnect delay when STOMP is connected (successful connection resets backoff)
+    if (StompClient && StompClient->IsConnected())
+    {
+        if (StompReconnectDelay != StompReconnectMinDelay)
+        {
+            StompReconnectDelay = StompReconnectMinDelay;
+            UE_LOG(LogTemp, Log, TEXT("[RobotManager] STOMP reconnected — reset backoff to %.1fs"), StompReconnectDelay);
+        }
+        StompReconnectTimer = 0.0f;
+    }
+
+    // Update robot CurrentLocationCode while moving (for real-time telemetry)
+    if (WarehouseEnv)
+    {
+        for (auto& Pair : RobotActors)
+        {
+            AWarehouseRobot* Robot = Pair.Value;
+            if (!Robot || !Robot->IsMoving()) continue;
+
+            // Resolve current world position to nearest root point code
+            FString NearestCode = WarehouseEnv->FindNearestRootPointCode(Robot->GetActorLocation());
+            if (!NearestCode.IsEmpty() && NearestCode != Robot->CurrentLocationCode)
+            {
+                Robot->CurrentLocationCode = NearestCode;
+            }
+        }
     }
 
     // HTTP polling fallback for packages when STOMP is not connected
@@ -160,9 +200,9 @@ void ARobotManager::Tick(float DeltaTime)
     {
         StatusDisplayTimer = 0.0f;
         FString StatusMsg = FString::Printf(
-            TEXT("🔗 HTTP: %s | STOMP: %s | Robots: %d | Events: %d"),
-            bIsBackendConnected ? TEXT("✅ Connected") : TEXT("❌ Disconnected"),
-            (StompClient && StompClient->IsConnected()) ? TEXT("✅ Connected") : TEXT("❌ Disconnected"),
+            TEXT("[LINK] HTTP: %s | STOMP: %s | Robots: %d | Events: %d"),
+            bIsBackendConnected ? TEXT("[OK] Connected") : TEXT("[X] Disconnected"),
+            (StompClient && StompClient->IsConnected()) ? TEXT("[OK] Connected") : TEXT("[X] Disconnected"),
             RobotActors.Num(),
             TotalEventsReceived);
         GEngine->AddOnScreenDebugMessage(1, 4.5f, FColor::White, *StatusMsg);
@@ -201,27 +241,8 @@ void ARobotManager::ConnectToBackend()
         if (StompClient)
         {
             StompClient->OnMessageReceived.AddDynamic(this, &ARobotManager::HandleStompMessage);
+            StompClient->OnConnected.AddDynamic(this, &ARobotManager::OnStompConnected);
             StompClient->Connect(RabbitStompUrl, TEXT("guest"), TEXT("guest"));
-
-            // Subscribe to relevant exchanges via STOMP after a short delay (wait for STOMP CONNECTED)
-            FTimerHandle StompSubTimer;
-            GetWorldTimerManager().SetTimer(StompSubTimer, [this]()
-            {
-                if (StompClient && StompClient->IsConnected())
-                {
-                    // Subscribe to logistics.exchange with the correct routing keys
-                    // This creates server-generated exclusive queues so UE5 gets its own copy
-                    // (won't compete with Java consumers on the durable queues)
-                    StompClient->SubscribeToExchange(TEXT("logistics.exchange"), TEXT("robot.command"), TEXT("auto"));
-                    StompClient->SubscribeToExchange(TEXT("logistics.exchange"), TEXT("order.dispatched"), TEXT("auto"));
-                    StompClient->SubscribeToExchange(TEXT("logistics.exchange"), TEXT("package.dispatched"), TEXT("auto"));
-                    UE_LOG(LogTemp, Log, TEXT("[RobotManager] Subscribed to STOMP exchanges (logistics.exchange)"));
-                }
-                else
-                {
-                    UE_LOG(LogTemp, Warning, TEXT("[RobotManager] STOMP not connected yet, skipping subscriptions"));
-                }
-            }, 3.0f, false);
 
             UE_LOG(LogTemp, Log, TEXT("[RobotManager] STOMP client connecting to %s"), *RabbitStompUrl);
         }
@@ -378,10 +399,17 @@ void ARobotManager::PublishTelemetry()
         }
 
         // Send per-robot telemetry via HTTP PUT
+        FString LocationCode = Data.CurrentLocation;
+        // If the robot has a CurrentLocationCode (RP-Rxx-Cyy), use that instead of raw coordinates
+        if (!Pair.Value->CurrentLocationCode.IsEmpty())
+        {
+            LocationCode = Pair.Value->CurrentLocationCode;
+        }
+
         FString TelemetryJson = FString::Printf(
             TEXT("{\"batteryLevel\":%d,\"currentLocation\":\"%s\",\"operationalMode\":\"%s\"}"),
             Data.BatteryLevel,
-            *Data.CurrentLocation,
+            *LocationCode,
             *ModeStr
         );
 
@@ -488,6 +516,24 @@ void ARobotManager::FetchAndApplyWarehouseLayout()
     Request->ProcessRequest();
 }
 
+void ARobotManager::OnStompConnected()
+{
+    if (!StompClient || !StompClient->IsConnected()) return;
+
+    // Subscribe to logistics.exchange with the correct routing keys
+    // This creates server-generated exclusive queues so UE5 gets its own copy
+    // (won't compete with Java consumers on the durable queues)
+    StompClient->SubscribeToExchange(TEXT("logistics.exchange"), TEXT("robot.command"), TEXT("auto"));
+    StompClient->SubscribeToExchange(TEXT("logistics.exchange"), TEXT("package.dispatched"), TEXT("auto"));
+    UE_LOG(LogTemp, Log, TEXT("[RobotManager] STOMP connected — subscribed to logistics.exchange (robot.command, package.dispatched)"));
+
+    if (GEngine)
+    {
+        GEngine->AddOnScreenDebugMessage(-1, 5.0f, FColor::Green,
+            TEXT("[STOMP] Connected & subscribed to logistics.exchange"));
+    }
+}
+
 void ARobotManager::HandleStompMessage(const FString& Destination, const FString& Body)
 {
     TotalEventsReceived++;
@@ -505,22 +551,42 @@ void ARobotManager::HandleStompMessage(const FString& Destination, const FString
     // Route based on STOMP destination
     if (Destination.Contains(TEXT("robot.command")))
     {
-        FString RobotId = RootObj->GetStringField(TEXT("robotId"));
-        FString Command = RootObj->GetStringField(TEXT("command"));
-        FString Target = RootObj->HasField(TEXT("targetLocation")) ? RootObj->GetStringField(TEXT("targetLocation")) : TEXT("");
-        HandleRobotCommand(RobotId, Command, Target);
-    }
-    else if (Destination.Contains(TEXT("order.dispatch")))
-    {
-        FString RobotId = RootObj->GetStringField(TEXT("robotId"));
-        int64 PackageId = static_cast<int64>(RootObj->GetNumberField(TEXT("packageId")));
-        FString MissionType = RootObj->GetStringField(TEXT("missionType"));
-        FString ReceptionSpot = RootObj->GetStringField(TEXT("receptionSpotCode"));
-        FString TargetSpot = RootObj->GetStringField(TEXT("targetSpotCode"));
-        FString ItemSku = RootObj->HasField(TEXT("itemSku")) ? RootObj->GetStringField(TEXT("itemSku")) : TEXT("");
-        int32 Quantity = RootObj->HasField(TEXT("quantity")) ? RootObj->GetIntegerField(TEXT("quantity")) : 0;
+        // Check if this is a mission command (has missionType) or a simple command (has command)
+        if (RootObj->HasField(TEXT("missionType")))
+        {
+            FString RobotId = RootObj->GetStringField(TEXT("robotId"));
+            FString MissionType = RootObj->GetStringField(TEXT("missionType"));
 
-        HandleMissionCommand(RobotId, PackageId, MissionType, ReceptionSpot, TargetSpot, ItemSku, Quantity);
+            int64 PackageId = 0;
+            if (RootObj->HasField(TEXT("packageId")))
+                PackageId = static_cast<int64>(RootObj->GetNumberField(TEXT("packageId")));
+            else if (RootObj->HasField(TEXT("orderId")))
+                PackageId = static_cast<int64>(RootObj->GetNumberField(TEXT("orderId")));
+
+            FString ReceptionSpot, TargetSpot;
+            if (MissionType == TEXT("STOCK_OUT"))
+            {
+                ReceptionSpot = RootObj->HasField(TEXT("pickupSpotCode")) ? RootObj->GetStringField(TEXT("pickupSpotCode")) : TEXT("");
+                TargetSpot = RootObj->HasField(TEXT("deliverySpotCode")) ? RootObj->GetStringField(TEXT("deliverySpotCode")) : TEXT("");
+            }
+            else
+            {
+                ReceptionSpot = RootObj->HasField(TEXT("receptionSpotCode")) ? RootObj->GetStringField(TEXT("receptionSpotCode")) : TEXT("");
+                TargetSpot = RootObj->HasField(TEXT("targetSpotCode")) ? RootObj->GetStringField(TEXT("targetSpotCode")) : TEXT("");
+            }
+
+            FString ItemSku = RootObj->HasField(TEXT("itemSku")) ? RootObj->GetStringField(TEXT("itemSku")) : TEXT("");
+            int32 Quantity = RootObj->HasField(TEXT("quantity")) ? RootObj->GetIntegerField(TEXT("quantity")) : 0;
+
+            HandleMissionCommand(RobotId, PackageId, MissionType, ReceptionSpot, TargetSpot, ItemSku, Quantity);
+        }
+        else
+        {
+            FString RobotId = RootObj->GetStringField(TEXT("robotId"));
+            FString Command = RootObj->GetStringField(TEXT("command"));
+            FString Target = RootObj->HasField(TEXT("targetLocation")) ? RootObj->GetStringField(TEXT("targetLocation")) : TEXT("");
+            HandleRobotCommand(RobotId, Command, Target);
+        }
     }
     else if (Destination.Contains(TEXT("package.dispatch")))
     {
@@ -654,11 +720,30 @@ void ARobotManager::HandleMissionCommand(const FString& InRobotId, int64 InPacka
 
     Robot->SetMission(Mission);
 
+    // Notify backend of state change: robot is now MOVING (dispatched for mission)
+    NotifyRobotStateChanged(Robot, TEXT("MOVING"));
+
     if (InMissionType == TEXT("STOCK_IN"))
     {
+        // STOCK_IN: Robot goes to reception dock first to pick up, then to shelf to store
         RequestRouteAndFollowWaypoints(Robot, Robot->CurrentLocationCode, InReceptionSpotCode, false);
-        UE_LOG(LogTemp, Log, TEXT("[RobotManager] Robot '%s' routing to RECEPTION '%s'"),
+        UE_LOG(LogTemp, Log, TEXT("[RobotManager] Robot '%s' STOCK_IN: routing to RECEPTION '%s'"),
             *InRobotId, *InReceptionSpotCode);
+    }
+    else if (InMissionType == TEXT("STOCK_OUT"))
+    {
+        // STOCK_OUT: Robot goes to shelf (pickup) first to pick items, then to delivery dock
+        // ReceptionSpotCode = pickupSpotCode (shelf), TargetSpotCode = deliverySpotCode (dock)
+        RequestRouteAndFollowWaypoints(Robot, Robot->CurrentLocationCode, InReceptionSpotCode, false);
+        UE_LOG(LogTemp, Log, TEXT("[RobotManager] Robot '%s' STOCK_OUT: routing to PICKUP '%s' (shelf)"),
+            *InRobotId, *InReceptionSpotCode);
+
+        if (GEngine)
+        {
+            FString OrderMsg = FString::Printf(TEXT("[ORDER] Robot '%s' dispatched → pick %s x%d from shelf %s → deliver to %s"),
+                *InRobotId, *InItemSku, InQuantity, *InReceptionSpotCode, *InTargetSpotCode);
+            GEngine->AddOnScreenDebugMessage(-1, 8.0f, FColor::Cyan, *OrderMsg);
+        }
     }
     else
     {
@@ -685,7 +770,7 @@ void ARobotManager::HandlePackageReceived(int64 PackageId, const FString& Sku, i
     // On-screen debug message so user can see package arrival in viewport
     if (GEngine)
     {
-        FString DebugMsg = FString::Printf(TEXT("📦 Package #%lld arrived! SKU=%s x%d\n  At: %s → %s"),
+        FString DebugMsg = FString::Printf(TEXT("[PKG] Package #%lld arrived! SKU=%s x%d\n  At: %s -> %s"),
             PackageId, *Sku, Quantity, *ReceptionSpotCode, *TargetSpotCode);
         GEngine->AddOnScreenDebugMessage(-1, 8.0f, FColor::Yellow, *DebugMsg);
     }
@@ -752,7 +837,7 @@ void ARobotManager::HandlePackageReceived(int64 PackageId, const FString& Sku, i
 
     if (GEngine)
     {
-        FString DispatchMsg = FString::Printf(TEXT("🤖 Robot '%s' dispatched → pick up pkg #%lld\n  Reception: %s → Target: %s"),
+        FString DispatchMsg = FString::Printf(TEXT("[BOT] Robot '%s' dispatched -> pick up pkg #%lld\n  Reception: %s -> Target: %s"),
             *BestRobot->RobotId, PackageId, *ReceptionSpotCode, *TargetSpotCode);
         GEngine->AddOnScreenDebugMessage(-1, 6.0f, FColor::Cyan, *DispatchMsg);
     }
@@ -800,29 +885,36 @@ void ARobotManager::HandleRobotArrival(AWarehouseRobot* Robot, const FString& Mi
         Robot->CurrentLocationCode = Mission.TargetSpotCode;
     }
 
-    // Handle multi-phase missions
-    if (MissionType == TEXT("STOCK_IN") && Mission.MissionPhase == TEXT("GO_TO_RECEPTION"))
+    // Handle multi-phase missions: both STOCK_IN and STOCK_OUT have 2 phases
+    // Phase 1 (GO_TO_RECEPTION): Go to pickup point → pick up items → switch to Phase 2
+    // Phase 2 (GO_TO_TARGET):    Go to delivery point → drop off items → complete mission
+    if (Mission.MissionPhase == TEXT("GO_TO_RECEPTION"))
     {
+        Robot->CurrentLocationCode = Mission.ReceptionSpotCode;
+
+        // Notify backend: robot arrived at pickup point → PICKING
+        NotifyRobotStateChanged(Robot, TEXT("PICKING"));
+
         if (GEngine)
         {
-            FString PickMsg = FString::Printf(TEXT("📦 Robot '%s' picked up pkg #%lld at %s → heading to %s"),
-                *Robot->RobotId, Mission.PackageId, *Mission.ReceptionSpotCode, *Mission.TargetSpotCode);
+            FString PickMsg = FString::Printf(TEXT("[%s] Robot '%s' picked up items at %s -> heading to %s"),
+                *MissionType, *Robot->RobotId, *Mission.ReceptionSpotCode, *Mission.TargetSpotCode);
             GEngine->AddOnScreenDebugMessage(-1, 6.0f, FColor::Green, *PickMsg);
         }
 
         Robot->PickUpItem();
 
-        if (WarehouseEnv)
+        if (MissionType == TEXT("STOCK_IN") && WarehouseEnv)
         {
             WarehouseEnv->RemoveItemVisual(Mission.PackageId);
         }
 
-        // Notify backend via HTTP that package was taken
+        // Notify backend that items were picked up
         if (HttpClient && HttpClient->IsConnected())
         {
             FString TakenJson = FString::Printf(
-                TEXT("{\"packageId\":%lld,\"robotId\":\"%s\"}"),
-                Mission.PackageId, *Robot->RobotId);
+                TEXT("{\"packageId\":%lld,\"robotId\":\"%s\",\"missionType\":\"%s\"}"),
+                Mission.PackageId, *Robot->RobotId, *MissionType);
             HttpClient->PublishEvent(TEXT("package.taken"), TakenJson);
             UE_LOG(LogTemp, Log, TEXT("[RobotManager] Notified package.taken for pkg=%lld robot=%s"),
                 Mission.PackageId, *Robot->RobotId);
@@ -831,28 +923,45 @@ void ARobotManager::HandleRobotArrival(AWarehouseRobot* Robot, const FString& Mi
         Robot->ActiveMission.MissionPhase = TEXT("GO_TO_TARGET");
         RequestRouteAndFollowWaypoints(Robot, Mission.ReceptionSpotCode, Mission.TargetSpotCode, true);
 
-        UE_LOG(LogTemp, Log, TEXT("[RobotManager] Robot '%s' picked up at reception, routing to target '%s'"),
-            *Robot->RobotId, *Mission.TargetSpotCode);
+        // Notify backend: robot moving to delivery point → MOVING
+        NotifyRobotStateChanged(Robot, TEXT("MOVING"));
+
+        PublishMissionEvent(TEXT("PACKAGE_PICKED"), Robot->RobotId,
+            Mission.PackageId, Mission.ReceptionSpotCode, Mission.MissionType);
+
+        UE_LOG(LogTemp, Log, TEXT("[RobotManager] Robot '%s' picked up at %s, routing to target '%s'"),
+            *Robot->RobotId, *Mission.ReceptionSpotCode, *Mission.TargetSpotCode);
         return;
     }
 
-    if (MissionType == TEXT("STOCK_IN") || MissionType == TEXT("STOCK_OUT"))
+    if (Mission.MissionPhase == TEXT("GO_TO_TARGET"))
     {
+        Robot->CurrentLocationCode = Mission.TargetSpotCode;
         Robot->DropOffItems();
 
-        // Notify backend via HTTP that package was delivered
+        // Notify backend: robot delivered items → IDLE (mission complete)
+        NotifyRobotStateChanged(Robot, TEXT("IDLE"));
+
+        // Notify backend that items were delivered
         if (HttpClient && HttpClient->IsConnected())
         {
             FString DeliveredJson = FString::Printf(
-                TEXT("{\"packageId\":%lld}"),
-                Mission.PackageId);
+                TEXT("{\"packageId\":%lld,\"missionType\":\"%s\"}"),
+                Mission.PackageId, *MissionType);
             HttpClient->PublishEvent(TEXT("package.delivered"), DeliveredJson);
             UE_LOG(LogTemp, Log, TEXT("[RobotManager] Notified package.delivered for pkg=%lld"),
                 Mission.PackageId);
         }
+
+        if (GEngine)
+        {
+            FString DoneMsg = FString::Printf(TEXT("[%s] Robot '%s' delivered items at %s ✓"),
+                *MissionType, *Robot->RobotId, *Mission.TargetSpotCode);
+            GEngine->AddOnScreenDebugMessage(-1, 6.0f, FColor::Green, *DoneMsg);
+        }
     }
 
-    PublishMissionEvent(TEXT("MISSION_COMPLETED"), Robot->RobotId,
+    PublishMissionEvent(TEXT("PACKAGE_DELIVERED"), Robot->RobotId,
         Mission.PackageId, Mission.TargetSpotCode, Mission.MissionType);
 
     Robot->ClearMission();
@@ -1063,13 +1172,19 @@ void ARobotManager::FetchActivePackages()
 
             if (!ReceptionSpot.IsEmpty())
             {
-                // Trigger full package handling (visual + auto-dispatch) via dedup-safe method
-                HandlePackageReceived(PackageId, Sku, Quantity, ReceptionSpot, TargetSpot);
-                VisualCount++;
+                // Only count as new if not already processed
+                if (!ProcessedPackageIds.Contains(PackageId))
+                {
+                    HandlePackageReceived(PackageId, Sku, Quantity, ReceptionSpot, TargetSpot);
+                    VisualCount++;
+                }
             }
         }
 
-        UE_LOG(LogTemp, Log, TEXT("[RobotManager] Fetched active packages: %d new packages processed"), VisualCount);
+        if (VisualCount > 0)
+        {
+            UE_LOG(LogTemp, Log, TEXT("[RobotManager] Fetched active packages: %d new packages processed"), VisualCount);
+        }
     });
 
     Request->ProcessRequest();
@@ -1137,6 +1252,9 @@ void ARobotManager::RequestRouteAndFollowWaypoints(AWarehouseRobot* Robot, const
 
     Request->OnProcessRequestComplete().BindLambda([this, RobotId, bPickUp](FHttpRequestPtr Req, FHttpResponsePtr Resp, bool bSuccess)
     {
+        // Safety: skip if shutting down (EndPlay already called)
+        if (!bIsBackendConnected) return;
+
         AWarehouseRobot** Found = RobotActors.Find(RobotId);
         if (!Found || !*Found)
         {
@@ -1187,7 +1305,26 @@ void ARobotManager::RequestRouteAndFollowWaypoints(AWarehouseRobot* Robot, const
                 if (WpObj->HasField(TEXT("y"))) Y = (float)WpObj->GetNumberField(TEXT("y"));
                 if (WpObj->HasField(TEXT("z"))) Z = (float)WpObj->GetNumberField(TEXT("z"));
 
-                Waypoints.Add(FVector(X, Y, Z));
+                FVector RawPos(X, Y, Z);
+
+                // Apply navigation offset: convert raw waypoint to nearest cell,
+                // then use CellToNavigationPosition which offsets toward grid interior
+                // to prevent the robot from clipping through walls/shelves at cell edges
+                if (WarehouseEnv)
+                {
+                    FString NearestCode = WarehouseEnv->FindNearestRootPointCode(RawPos);
+                    if (!NearestCode.IsEmpty())
+                    {
+                        FVector OffsetPos;
+                        if (WarehouseEnv->GetSpotPosition(NearestCode, OffsetPos))
+                        {
+                            Waypoints.Add(OffsetPos);
+                            continue;
+                        }
+                    }
+                }
+
+                Waypoints.Add(RawPos);
             }
         }
 
@@ -1216,4 +1353,25 @@ void ARobotManager::RequestRouteAndFollowWaypoints(AWarehouseRobot* Robot, const
     });
 
     Request->ProcessRequest();
+}
+
+void ARobotManager::NotifyRobotStateChanged(AWarehouseRobot* Robot, const FString& NewMode)
+{
+    if (!Robot || !HttpClient || !HttpClient->IsConnected()) return;
+
+    const FSmartLogisticRobotData& Data = Robot->GetCurrentData();
+    FString LocationCode = Robot->CurrentLocationCode.IsEmpty()
+        ? Data.CurrentLocation
+        : Robot->CurrentLocationCode;
+
+    FString TelemetryJson = FString::Printf(
+        TEXT("{\"batteryLevel\":%d,\"currentLocation\":\"%s\",\"operationalMode\":\"%s\"}"),
+        Data.BatteryLevel,
+        *LocationCode,
+        *NewMode
+    );
+
+    HttpClient->SendTelemetry(Data.RobotId, TelemetryJson);
+    UE_LOG(LogTemp, Log, TEXT("[RobotManager] State change notified: robot=%s → %s at %s"),
+        *Data.RobotId, *NewMode, *LocationCode);
 }

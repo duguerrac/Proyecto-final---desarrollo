@@ -10,5 +10,6 @@ public record SpotDTO(
     String section,
     BigDecimal x,
     BigDecimal y,
+    String rootPointCode,
     List<SpotItemDTO> items
 ) {}

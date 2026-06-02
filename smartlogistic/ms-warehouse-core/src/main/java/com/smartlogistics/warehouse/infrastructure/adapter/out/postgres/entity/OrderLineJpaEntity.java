@@ -10,8 +10,9 @@ public class OrderLineJpaEntity {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(name = "order_id", nullable = false)
-    private Long orderId;
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "order_id", nullable = false)
+    private WarehouseOrderJpaEntity order;
 
     @Column(nullable = false, length = 50)
     private String sku;
@@ -20,8 +21,8 @@ public class OrderLineJpaEntity {
     private Integer quantity = 1;
 
     public Long getId() { return id; }
-    public Long getOrderId() { return orderId; }
-    public void setOrderId(Long orderId) { this.orderId = orderId; }
+    public WarehouseOrderJpaEntity getOrder() { return order; }
+    public void setOrder(WarehouseOrderJpaEntity order) { this.order = order; }
     public String getSku() { return sku; }
     public void setSku(String sku) { this.sku = sku; }
     public Integer getQuantity() { return quantity; }

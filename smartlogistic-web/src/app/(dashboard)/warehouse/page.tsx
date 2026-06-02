@@ -89,6 +89,8 @@ export default function WarehousePage() {
   const [robots, setRobots] = useState<Map<string, Robot>>(new Map());
   const [packages, setPackages] = useState<Package[]>([]);
   const [spotGridMap, setSpotGridMap] = useState<Map<string, { row: number; col: number }>>(new Map());
+  const [cellItemCounts, setCellItemCounts] = useState<Map<string, number>>(new Map());
+  const [cellItemsMap, setCellItemsMap] = useState<Map<string, { itemId: number; name: string; sku: string; quantityAvailable: number }[]>>(new Map());
   const [loading, setLoading] = useState(true);
   const [selectedCell, setSelectedCell] = useState<LayoutCell | null>(null);
   const [selectedRobot, setSelectedRobot] = useState<Robot | null>(null);
@@ -98,20 +100,27 @@ export default function WarehousePage() {
   const eventSourceRef = useRef<EventSource | null>(null);
   const packageEventSourceRef = useRef<EventSource | null>(null);
   const packagePollRef = useRef<NodeJS.Timeout | null>(null);
+  const selectedCellRef = useRef<LayoutCell | null>(null);
 
-  // Fetch shelf items when a SHELF cell is selected
+  // Keep ref in sync with state so SSE callbacks can access current value
+  useEffect(() => {
+    selectedCellRef.current = selectedCell;
+  }, [selectedCell]);
+
+  // Show shelf items when a SHELF cell is selected — use cached data from GET /api/spots
   useEffect(() => {
     if (selectedCell && selectedCell.cellType === 'SHELF') {
-      setLoadingItems(true);
-      setShelfItems([]);
-      api.getSpotItemsByCell(selectedCell.rowIndex, selectedCell.colIndex)
-        .then((items) => setShelfItems(items))
-        .catch(() => setShelfItems([]))
-        .finally(() => setLoadingItems(false));
+      const key = `${selectedCell.rowIndex}-${selectedCell.colIndex}`;
+      const cached = cellItemsMap.get(key);
+      if (cached && cached.length > 0) {
+        setShelfItems(cached);
+      } else {
+        setShelfItems([]);
+      }
     } else {
       setShelfItems([]);
     }
-  }, [selectedCell]);
+  }, [selectedCell, cellItemsMap]);
 
   useEffect(() => {
     loadLayout();
@@ -161,6 +170,101 @@ export default function WarehousePage() {
       try {
         const pkg = JSON.parse(event.data);
         setPackages((prev) => prev.map((p) => (p.id === pkg.id ? pkg : p)));
+
+        // If a package was just delivered, reload spots to update item data
+        if (pkg.status === 'DELIVERED') {
+          api.getSpots().then((spotsData) => {
+            if (Array.isArray(spotsData) && layout && layout.cellSize > 0) {
+              const itemCounts = new Map<string, number>();
+              const itemsMap = new Map<string, { itemId: number; name: string; sku: string; quantityAvailable: number }[]>();
+
+              spotsData.forEach((spot: {
+                code: string;
+                x: number;
+                y: number;
+                rootPointCode?: string;
+                items: { productId: number; productName: string; sku: string; quantity: number }[];
+              }) => {
+                let row: number;
+                let col: number;
+                if (spot.rootPointCode) {
+                  const parsed = parseSpotToGrid(spot.rootPointCode);
+                  if (parsed) { row = parsed.row; col = parsed.col; }
+                  else { col = Math.round(spot.x / layout.cellSize); row = Math.round(spot.y / layout.cellSize); }
+                } else {
+                  col = Math.round(spot.x / layout.cellSize);
+                  row = Math.round(spot.y / layout.cellSize);
+                }
+
+                const key = `${row}-${col}`;
+                const spotItems = (spot.items || []).map(item => ({
+                  itemId: item.productId, name: item.productName,
+                  sku: item.sku, quantityAvailable: item.quantity,
+                }));
+                const existing = itemsMap.get(key) || [];
+                itemsMap.set(key, [...existing, ...spotItems]);
+
+                const totalQty = (spot.items || []).reduce((sum: number, item) => sum + item.quantity, 0);
+                if (totalQty > 0) {
+                  itemCounts.set(key, (itemCounts.get(key) || 0) + totalQty);
+                }
+              });
+
+              setCellItemCounts(itemCounts);
+              setCellItemsMap(itemsMap);
+            }
+          }).catch(() => {});
+        }
+      } catch { /* ignore */ }
+    });
+
+    es.addEventListener('stock-updated', (event) => {
+      try {
+        const updatedItems = JSON.parse(event.data);
+        if (!Array.isArray(updatedItems) || !layout || layout.cellSize <= 0) return;
+
+        // Reload all spots to get accurate counts after stock change
+        api.getSpots().then((spotsData) => {
+          if (Array.isArray(spotsData) && layout && layout.cellSize > 0) {
+            const itemCounts = new Map<string, number>();
+            const itemsMap = new Map<string, { itemId: number; name: string; sku: string; quantityAvailable: number }[]>();
+
+            spotsData.forEach((spot: {
+              code: string;
+              x: number;
+              y: number;
+              rootPointCode?: string;
+              items: { productId: number; productName: string; sku: string; quantity: number }[];
+            }) => {
+              let row: number;
+              let col: number;
+              if (spot.rootPointCode) {
+                const parsed = parseSpotToGrid(spot.rootPointCode);
+                if (parsed) { row = parsed.row; col = parsed.col; }
+                else { col = Math.round(spot.x / layout.cellSize); row = Math.round(spot.y / layout.cellSize); }
+              } else {
+                col = Math.round(spot.x / layout.cellSize);
+                row = Math.round(spot.y / layout.cellSize);
+              }
+
+              const key = `${row}-${col}`;
+              const spotItems = (spot.items || []).map(item => ({
+                itemId: item.productId, name: item.productName,
+                sku: item.sku, quantityAvailable: item.quantity,
+              }));
+              const existing = itemsMap.get(key) || [];
+              itemsMap.set(key, [...existing, ...spotItems]);
+
+              const totalQty = (spot.items || []).reduce((sum: number, item) => sum + item.quantity, 0);
+              if (totalQty > 0) {
+                itemCounts.set(key, (itemCounts.get(key) || 0) + totalQty);
+              }
+            });
+
+            setCellItemCounts(itemCounts);
+            setCellItemsMap(itemsMap);
+          }
+        }).catch(() => {});
       } catch { /* ignore */ }
     });
 
@@ -179,15 +283,60 @@ export default function WarehousePage() {
       ]);
       if (layoutData) {
         setLayout(layoutData);
-        // Build spot code → grid position mapping using spot coordinates
         if (Array.isArray(spotsData) && layoutData.cellSize > 0) {
-          const map = new Map<string, { row: number; col: number }>();
-          spotsData.forEach((spot: { code: string; x: number; y: number }) => {
-            const col = Math.round(spot.x / layoutData.cellSize);
-            const row = Math.round(spot.y / layoutData.cellSize);
-            map.set(spot.code, { row, col });
+          const gridMap = new Map<string, { row: number; col: number }>();
+          const itemCounts = new Map<string, number>();
+          const itemsMap = new Map<string, { itemId: number; name: string; sku: string; quantityAvailable: number }[]>();
+
+          spotsData.forEach((spot: {
+            code: string;
+            x: number;
+            y: number;
+            rootPointCode?: string;
+            items: { productId: number; productName: string; sku: string; quantity: number }[];
+          }) => {
+            // Use rootPointCode (e.g. "RP-R02-C01") to resolve grid position accurately
+            // Fall back to x/y coordinate calculation if rootPointCode is missing
+            let row: number;
+            let col: number;
+            if (spot.rootPointCode) {
+              const parsed = parseSpotToGrid(spot.rootPointCode);
+              if (parsed) {
+                row = parsed.row;
+                col = parsed.col;
+              } else {
+                col = Math.round(spot.x / layoutData.cellSize);
+                row = Math.round(spot.y / layoutData.cellSize);
+              }
+            } else {
+              col = Math.round(spot.x / layoutData.cellSize);
+              row = Math.round(spot.y / layoutData.cellSize);
+            }
+
+            gridMap.set(spot.code, { row, col });
+
+            const key = `${row}-${col}`;
+            const spotItems = (spot.items || []).map(item => ({
+              itemId: item.productId,
+              name: item.productName,
+              sku: item.sku,
+              quantityAvailable: item.quantity,
+            }));
+
+            // Merge items from multiple spots at the same cell
+            const existing = itemsMap.get(key) || [];
+            itemsMap.set(key, [...existing, ...spotItems]);
+
+            // Sum item quantities for count badge
+            const totalQty = (spot.items || []).reduce((sum: number, item) => sum + item.quantity, 0);
+            if (totalQty > 0) {
+              itemCounts.set(key, (itemCounts.get(key) || 0) + totalQty);
+            }
           });
-          setSpotGridMap(map);
+
+          setSpotGridMap(gridMap);
+          setCellItemCounts(itemCounts);
+          setCellItemsMap(itemsMap);
         }
       }
     } catch {
@@ -391,6 +540,10 @@ export default function WarehousePage() {
             <div className="w-5 h-5 rounded-full bg-orange-500 flex items-center justify-center text-white text-[8px] font-bold">P</div>
             <span className="text-[#94a3b8]">Package</span>
           </div>
+          <div className="flex items-center gap-2 ml-2">
+            <div className="w-5 h-5 rounded-full bg-emerald-500 flex items-center justify-center text-white text-[8px] font-bold">I</div>
+            <span className="text-[#94a3b8]">Items</span>
+          </div>
         </div>
       </div>
 
@@ -428,6 +581,7 @@ export default function WarehousePage() {
                     const robotsHere = getRobotsOnCell(r, c);
                     const packagesHere = getPackagesOnCell(r, c);
                     const isSelected = selectedCell?.rowIndex === r && selectedCell?.colIndex === c;
+                    const itemCount = cellItemCounts.get(`${r}-${c}`) || 0;
                     return (
                       <div
                         key={`${r}-${c}`}
@@ -437,10 +591,21 @@ export default function WarehousePage() {
                             ? `${CELL_COLORS[cellType as CellType] || CELL_COLORS.EMPTY} ${isSelected ? 'ring-2 ring-primary-400 z-10' : 'hover:brightness-125'}`
                             : 'bg-transparent border-transparent'
                         }`}
-                        title={cell ? `${CELL_LABELS[cellType as CellType]} (${r},${c})${packagesHere.length > 0 ? ` — ${packagesHere.length} package(s)` : ''}` : ''}
+                        title={cell ? `${CELL_LABELS[cellType as CellType]} (${r},${c})${packagesHere.length > 0 ? ` — ${packagesHere.length} package(s)` : ''}${itemCount > 0 ? ` — ${itemCount} items stored` : ''}` : ''}
                       >
                         {cell && (
                           <span className="text-[10px] leading-none">{CELL_ICONS[cellType as CellType]}</span>
+                        )}
+                        {/* Item count badge on SHELF cells (bottom-right) */}
+                        {itemCount > 0 && (
+                          <div className="absolute -bottom-1 -right-1 z-10">
+                            <div
+                              className={`w-4 h-4 rounded-full ${itemCount > 10 ? 'bg-red-500' : itemCount > 5 ? 'bg-yellow-500' : 'bg-emerald-500'} flex items-center justify-center text-white text-[7px] font-bold border border-[#1e293b] shadow-lg`}
+                              title={`${itemCount} items stored`}
+                            >
+                              {itemCount > 99 ? '99+' : itemCount}
+                            </div>
+                          </div>
                         )}
                         {/* Package markers (bottom-left) */}
                         {packagesHere.length > 0 && (
@@ -691,11 +856,7 @@ export default function WarehousePage() {
                     <h4 className="text-[#94a3b8] text-xs font-semibold uppercase tracking-wider mb-2">
                       Stored Items
                     </h4>
-                    {loadingItems ? (
-                      <div className="flex items-center justify-center py-4">
-                        <div className="w-5 h-5 border-2 border-primary-500 border-t-transparent rounded-full animate-spin" />
-                      </div>
-                    ) : shelfItems.length === 0 ? (
+                    {shelfItems.length === 0 ? (
                       <p className="text-[#64748b] text-sm text-center py-3">No items stored</p>
                     ) : (
                       <div className="space-y-2">

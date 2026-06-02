@@ -113,11 +113,18 @@ class ApiClient {
 
   // Get items stored at a specific grid cell (row, col)
   async getSpotItemsByCell(row: number, col: number): Promise<{ itemId: number; name: string; sku: string; quantityAvailable: number }[]> {
-    return this.request(`/spots/by-cell/${row}/${col}/items`);
+    const raw = await this.request<{ productId: number; productName: string; sku: string; quantity: number }[]>(`/spots/by-cell/${row}/${col}/items`);
+    // Map backend field names to frontend expectations
+    return raw.map(item => ({
+      itemId: item.productId,
+      name: item.productName,
+      sku: item.sku,
+      quantityAvailable: item.quantity,
+    }));
   }
 
   // ==================== SPOTS ====================
-  async getSpots(): Promise<{ id: number; code: string; aisle: string; section: string; x: number; y: number; items: { productId: number; productName: string; sku: string; quantity: number }[] }[]> {
+  async getSpots(): Promise<{ id: number; code: string; aisle: string; section: string; x: number; y: number; rootPointCode?: string; items: { productId: number; productName: string; sku: string; quantity: number }[] }[]> {
     return this.request('/spots');
   }
 

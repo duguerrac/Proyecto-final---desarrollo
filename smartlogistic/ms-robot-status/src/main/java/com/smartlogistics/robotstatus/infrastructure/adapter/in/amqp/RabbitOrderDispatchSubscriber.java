@@ -15,7 +15,8 @@ import java.nio.charset.StandardCharsets;
 
 /**
  * Inbound RabbitMQ adapter that subscribes to order dispatched events
- * and dispatches an available robot to pick the items.
+ * and dispatches an available robot to pick the items from the shelf
+ * and deliver them to the delivery dock (STOCK_OUT mission).
  */
 @Component
 public class RabbitOrderDispatchSubscriber {
@@ -40,16 +41,37 @@ public class RabbitOrderDispatchSubscriber {
             String body = new String(message.getBody(), StandardCharsets.UTF_8);
             JsonNode order = mapper.readTree(body);
             long orderId = order.get("orderId").asLong();
-            String pickupSpot = order.has("pickupSpotCode") ? order.get("pickupSpotCode").asText() : "";
-            String deliveryPoint = order.has("deliveryPoint") ? order.get("deliveryPoint").asText() : "";
+            String pickupSpot = order.has("pickupSpotCode") && !order.get("pickupSpotCode").isNull()
+                    ? order.get("pickupSpotCode").asText() : "";
+            String deliveryPoint = order.has("deliveryPoint") && !order.get("deliveryPoint").isNull()
+                    ? order.get("deliveryPoint").asText() : "DELIVERY-1";
 
-            log.info("📦 Order #{} received — pickup={}, delivery={}", orderId, pickupSpot, deliveryPoint);
+            // Extract first line's SKU and quantity for the mission
+            String itemSku = "";
+            int quantity = 1;
+            if (order.has("lines") && order.get("lines").isArray() && order.get("lines").size() > 0) {
+                JsonNode firstLine = order.get("lines").get(0);
+                itemSku = firstLine.has("sku") ? firstLine.get("sku").asText() : "";
+                quantity = firstLine.has("quantity") ? firstLine.get("quantity").asInt() : 1;
+            }
+
+            log.info("📦 Order #{} received — pickup={}, delivery={}, sku={}, qty={}",
+                    orderId, pickupSpot, deliveryPoint, itemSku, quantity);
+
+            if (pickupSpot.isEmpty()) {
+                log.warn("⚠️ Order #{} has no pickupSpotCode — cannot dispatch robot", orderId);
+                return;
+            }
 
             String robotId = dispatchRobotUseCase.findAvailableRobot();
 
             if (robotId != null) {
-                log.info("🤖 Dispatching robot {} for order #{}", robotId, orderId);
-                robotDispatchPort.sendGoToCommand(robotId, pickupSpot, orderId);
+                log.info("🤖 Dispatching robot {} for STOCK_OUT order #{} ({} x{} from {} → {})",
+                        robotId, orderId, itemSku, quantity, pickupSpot, deliveryPoint);
+
+                // Send a proper STOCK_OUT mission that Unreal can handle
+                robotDispatchPort.sendStockOutMission(robotId, orderId,
+                        pickupSpot, deliveryPoint, itemSku, quantity);
                 robotDispatchPort.publishOrderDispatched(orderId, robotId);
             } else {
                 log.warn("⚠️ No available robot for order #{}", orderId);
