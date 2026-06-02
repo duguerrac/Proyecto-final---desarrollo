@@ -559,9 +559,12 @@ float AWarehouseEnvironment::GetCellSize() const
 FVector AWarehouseEnvironment::CellToWorldPosition(int32 Row, int32 Col) const
 {
     float CellSz = GetCellSize();
-    // Cell center = row*cellSize + cellSize/2 — robot always at exact mid-cell
+    // Cell center: row/col * cellSize + cellSize/2
     float X = Row * CellSz + CellSz / 2.0f;
-    float Y = Col * CellSz + CellSz / 2.0f;
+    // Mirror Y axis so backend col 0 (left) appears on right in UE5 view
+    float Y = (bUsingDynamicLayout && CurrentLayout.Cols > 0)
+        ? (CurrentLayout.Cols - 1 - Col) * CellSz + CellSz / 2.0f
+        : Col * CellSz + CellSz / 2.0f;
     return GetActorLocation() + FVector(X, Y, 0.0f);
 }
 
@@ -1008,8 +1011,9 @@ bool AWarehouseEnvironment::GetSpotPosition(const FString& SpotCode, FVector& Ou
     {
         float CellSz = GetCellSize();
         float UE5_X = Spot->Y + CellSz / 2.0f;
-        // Match CellToWorldPosition: Y = col*cellSize + cellSize/2
-        float UE5_Y = Spot->X + CellSz / 2.0f;
+        // Match CellToWorldPosition Y mirroring: Y = (Cols-1-Col)*CellSz + CellSz/2
+        // Backend Spot->X = col*CellSz, so UE5_Y = (Cols-0.5)*CellSz - Spot->X
+        float UE5_Y = (CurrentLayout.Cols - 0.5f) * CellSz - Spot->X;
         OutPosition = GetActorLocation() + FVector(UE5_X, UE5_Y, 0.0f);
         UE_LOG(LogTemp, Log, TEXT("[Warehouse] GetSpotPosition: Spot '%s' backend(%.0f,%.0f) → UE5(%.0f,%.0f)"),
             *SpotCode, Spot->X, Spot->Y, UE5_X, UE5_Y);
@@ -1207,12 +1211,12 @@ FString AWarehouseEnvironment::FindNearestRootPointCode(const FVector& WorldPosi
 
     float CellSz = GetCellSize();
 
-    // Reverse CellToWorldPosition (no mirroring):
+    // Reverse CellToWorldPosition (with Y mirroring):
     //   X = Row*CellSz + CellSz/2  → Row = round(X/CellSz - 0.5)
-    //   Y = Col*CellSz + CellSz/2  → Col = round(Y/CellSz - 0.5)
+    //   Y = (Cols-1-Col)*CellSz + CellSz/2 → Col = Cols-1 - round(Y/CellSz - 0.5)
     FVector LocalPos = WorldPosition - GetActorLocation();
     int32 Row = FMath::RoundToInt(LocalPos.X / CellSz - 0.5f);
-    int32 Col = FMath::RoundToInt(LocalPos.Y / CellSz - 0.5f);
+    int32 Col = CurrentLayout.Cols - 1 - FMath::RoundToInt(LocalPos.Y / CellSz - 0.5f);
 
     // Clamp to valid bounds
     Row = FMath::Clamp(Row, 0, CurrentLayout.Rows - 1);
