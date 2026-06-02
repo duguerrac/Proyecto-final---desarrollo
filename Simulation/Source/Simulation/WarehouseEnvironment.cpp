@@ -562,7 +562,8 @@ FVector AWarehouseEnvironment::CellToWorldPosition(int32 Row, int32 Col) const
     // Place cell CENTER at (row+0.5)*CellSz so (0,0) center is at CellSz/2
     // This keeps all cell content inside the warehouse boundaries
     float X = (Row + 0.5f) * CellSz;
-    float Y = (Col + 0.5f) * CellSz;
+    // Mirror Y axis so that Col 0 is on the RIGHT side in UE5 (matching web view)
+    float Y = (CurrentLayout.Cols - 1 - Col + 0.5f) * CellSz;
     return GetActorLocation() + FVector(X, Y, 0.0f);
 }
 
@@ -1006,7 +1007,8 @@ bool AWarehouseEnvironment::GetSpotPosition(const FString& SpotCode, FVector& Ou
     {
         float CellSz = GetCellSize();
         float UE5_X = Spot->Y + CellSz / 2.0f;
-        float UE5_Y = Spot->X + CellSz / 2.0f;
+        // Mirror Y to match CellToWorldPosition: Y = (Cols-1-Col+0.5)*CellSz
+        float UE5_Y = (CurrentLayout.Cols - 0.5f) * CellSz - Spot->X;
         OutPosition = GetActorLocation() + FVector(UE5_X, UE5_Y, 0.0f);
         UE_LOG(LogTemp, Log, TEXT("[Warehouse] GetSpotPosition: Spot '%s' backend(%.0f,%.0f) → UE5(%.0f,%.0f)"),
             *SpotCode, Spot->X, Spot->Y, UE5_X, UE5_Y);
@@ -1204,10 +1206,12 @@ FString AWarehouseEnvironment::FindNearestRootPointCode(const FVector& WorldPosi
 
     float CellSz = GetCellSize();
 
-    // Reverse CellToWorldPosition: World = ActorLoc + FVector((Row+0.5)*CellSz, (Col+0.5)*CellSz, 0)
+    // Reverse CellToWorldPosition with mirrored Y:
+    //   X = (Row + 0.5) * CellSz          → Row = X/CellSz - 0.5
+    //   Y = (Cols-1-Col + 0.5) * CellSz   → Col = (Cols-1) - (Y/CellSz - 0.5)
     FVector LocalPos = WorldPosition - GetActorLocation();
     int32 Row = FMath::RoundToInt(LocalPos.X / CellSz - 0.5f);
-    int32 Col = FMath::RoundToInt(LocalPos.Y / CellSz - 0.5f);
+    int32 Col = (CurrentLayout.Cols - 1) - FMath::RoundToInt(LocalPos.Y / CellSz - 0.5f);
 
     // Clamp to valid bounds
     Row = FMath::Clamp(Row, 0, CurrentLayout.Rows - 1);
