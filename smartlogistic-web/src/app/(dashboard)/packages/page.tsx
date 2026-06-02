@@ -69,7 +69,7 @@ export default function PackagesPage() {
   const loadPackages = async () => {
     try {
       const data = await api.getPackages();
-      setPackages(data);
+      setPackages(data || []);
     } catch {
       // silently handle
     } finally {

@@ -48,10 +48,12 @@ export default function OrdersPage() {
     setSubmitting(true);
 
     try {
-      const request: CreateOrderRequest = { items: selectedItems };
+      const request: CreateOrderRequest = {
+        lines: selectedItems.map((i) => ({ sku: i.productId, quantity: i.quantity })),
+      };
       const newOrder = await api.createOrder(request);
       setOrders((prev) => [...prev, newOrder]);
-      setSuccess(`Order ${newOrder.orderNumber} created successfully!`);
+      setSuccess(`Order ${newOrder.orderNumber || `#${newOrder.id}`} created successfully!`);
       setSelectedItems([]);
       setShowForm(false);
     } catch (err: any) {
@@ -109,7 +111,7 @@ export default function OrdersPage() {
     } else {
       acc.push({
         productId: pkg.id,
-        productName: pkg.productName,
+        productName: pkg.productName || pkg.sku || 'Unknown',
         totalQuantity: pkg.quantity,
         spotLabel: pkg.spotLabel || 'N/A',
       });
@@ -277,9 +279,9 @@ export default function OrdersPage() {
                     </svg>
                   </div>
                   <div>
-                    <p className="text-white font-medium">{order.orderNumber}</p>
+                    <p className="text-white font-medium">{order.orderNumber || `Order #${order.id}`}</p>
                     <p className="text-[#64748b] text-xs">
-                      {order.items.length} item(s) · {new Date(order.createdAt).toLocaleDateString()}
+                      {(order.items || order.lines || []).length} item(s) · {new Date(order.createdAt).toLocaleDateString()}
                     </p>
                   </div>
                 </div>
@@ -298,11 +300,11 @@ export default function OrdersPage() {
                 <div className="mt-4 pt-4 border-t border-[#334155]">
                   <h4 className="text-xs font-medium text-[#64748b] uppercase tracking-wider mb-2">Order Items</h4>
                   <div className="space-y-2">
-                    {order.items.map((item) => (
-                      <div key={item.id} className="flex items-center justify-between p-2.5 bg-[#0f172a] rounded-lg">
+                    {(order.items || order.lines || []).map((item, idx) => (
+                      <div key={item.id || idx} className="flex items-center justify-between p-2.5 bg-[#0f172a] rounded-lg">
                         <div>
-                          <p className="text-white text-sm">{item.productName}</p>
-                          <p className="text-[#64748b] text-xs">ID: {item.productId}</p>
+                          <p className="text-white text-sm">{item.productName || item.sku || `Item #${idx + 1}`}</p>
+                          <p className="text-[#64748b] text-xs">SKU: {item.sku || item.productId || 'N/A'}</p>
                         </div>
                         <div className="text-right">
                           <p className="text-white text-sm">× {item.quantity}</p>

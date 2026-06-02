@@ -65,25 +65,42 @@ export interface ReceivePackageRequest {
 // ==================== ORDER ====================
 export type OrderStatus = 'PENDING' | 'IN_PROGRESS' | 'COMPLETED' | 'CANCELLED';
 
-export interface OrderItem {
-  id: string;
-  productId: string;
-  productName: string;
+export interface OrderLine {
+  id?: string;
+  sku: string;
   quantity: number;
-  spotLabel: string | null;
+  productName?: string;
+  productId?: string;
+  spotLabel?: string | null;
 }
 
 export interface Order {
   id: string;
-  orderNumber: string;
+  orderNumber?: string;      // may not be returned by backend
   status: OrderStatus;
-  items: OrderItem[];
+  items?: OrderItem[];       // frontend alias for backend 'lines'
+  lines?: OrderLine[];       // backend field name
+  pickupSpotCode?: string;
+  deliveryPoint?: string;
+  robotId?: string | null;
   createdAt: string;
-  completedAt: string | null;
+  completedAt?: string | null;
+}
+
+export interface OrderItem {
+  id?: string;
+  productId?: string;
+  productName?: string;
+  sku?: string;
+  quantity: number;
+  spotLabel?: string | null;
 }
 
 export interface CreateOrderRequest {
-  items: { productId: string; quantity: number }[];
+  items?: { productId: string; quantity: number }[];
+  lines?: { sku: string; quantity: number }[];
+  pickupSpotCode?: string;
+  deliveryPoint?: string;
 }
 
 // ==================== WAREHOUSE LAYOUT ====================

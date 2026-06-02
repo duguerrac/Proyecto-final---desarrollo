@@ -56,6 +56,8 @@ const PACKAGE_STATUS_COLORS: Record<string, string> = {
   RECEIVED: 'bg-orange-500',
   IN_TRANSIT: 'bg-blue-500',
   DELIVERED: 'bg-green-500',
+  STORED: 'bg-emerald-500',
+  PICKED: 'bg-amber-500',
   DISPATCHED: 'bg-purple-500',
 };
 
@@ -63,6 +65,8 @@ const PACKAGE_STATUS_LABELS: Record<string, string> = {
   RECEIVED: 'At Reception',
   IN_TRANSIT: 'In Transit',
   DELIVERED: 'Delivered',
+  STORED: 'Stored',
+  PICKED: 'Picked Up',
   DISPATCHED: 'Dispatched',
 };
 
@@ -84,6 +88,65 @@ function parseSpotToGrid(spotCode: string): { row: number; col: number } | null 
   return null;
 }
 
+/** Normalize a raw package object from SSE or API into a safe Package */
+function normalizePackage(raw: any): Package {
+  return {
+    id: String(raw?.id ?? ''),
+    sku: raw?.sku ?? '',
+    quantity: raw?.quantity ?? 0,
+    status: raw?.status ?? 'RECEIVED',
+    receptionSpotCode: raw?.receptionSpotCode ?? '',
+    targetSpotCode: raw?.targetSpotCode ?? '',
+    robotId: raw?.robotId ?? null,
+    createdAt: raw?.createdAt ?? '',
+  };
+}
+
+/** Resolve a spot's grid position from rootPointCode or x/y coordinates */
+function resolveSpotGridPos(
+  spot: { x: number; y: number; rootPointCode?: string },
+  cellSize: number
+): { row: number; col: number } {
+  const cs = Number(cellSize) || 1;
+  if (spot.rootPointCode) {
+    const parsed = parseSpotToGrid(spot.rootPointCode);
+    if (parsed) return parsed;
+  }
+  return {
+    col: Math.round(Number(spot.x) / cs),
+    row: Math.round(Number(spot.y) / cs),
+  };
+}
+
+/** Rebuild cell item counts and items map from spots data */
+function rebuildCellMaps(
+  spotsData: any[],
+  cellSize: number
+): {
+  itemCounts: Map<string, number>;
+  itemsMap: Map<string, { itemId: number; name: string; sku: string; quantityAvailable: number }[]>;
+} {
+  const itemCounts = new Map<string, number>();
+  const itemsMap = new Map<string, { itemId: number; name: string; sku: string; quantityAvailable: number }[]>();
+  for (const spot of spotsData) {
+    const { row, col } = resolveSpotGridPos(spot, cellSize);
+    const key = `${row}-${col}`;
+    const spotItems = (spot.items || []).map((item: any) => ({
+      itemId: item.productId ?? item.itemId ?? 0,
+      name: item.productName ?? item.name ?? '',
+      sku: item.sku ?? '',
+      quantityAvailable: item.quantity ?? item.quantityAvailable ?? 0,
+    }));
+    const existing = itemsMap.get(key) || [];
+    itemsMap.set(key, [...existing, ...spotItems]);
+    const totalQty = (spot.items || []).reduce((sum: number, item: any) => sum + (item.quantity ?? 0), 0);
+    if (totalQty > 0) {
+      itemCounts.set(key, (itemCounts.get(key) || 0) + totalQty);
+    }
+  }
+  return { itemCounts, itemsMap };
+}
+
 export default function WarehousePage() {
   const [layout, setLayout] = useState<WarehouseLayout | null>(null);
   const [robots, setRobots] = useState<Map<string, Robot>>(new Map());
@@ -95,7 +158,6 @@ export default function WarehousePage() {
   const [selectedCell, setSelectedCell] = useState<LayoutCell | null>(null);
   const [selectedRobot, setSelectedRobot] = useState<Robot | null>(null);
   const [shelfItems, setShelfItems] = useState<{ itemId: number; name: string; sku: string; quantityAvailable: number }[]>([]);
-  const [loadingItems, setLoadingItems] = useState(false);
   const [sseStatus, setSseStatus] = useState<'connecting' | 'connected' | 'disconnected'>('disconnected');
   const eventSourceRef = useRef<EventSource | null>(null);
   const packageEventSourceRef = useRef<EventSource | null>(null);
@@ -157,7 +219,8 @@ export default function WarehousePage() {
 
     es.addEventListener('package-received', (event) => {
       try {
-        const pkg = JSON.parse(event.data);
+        const raw = JSON.parse(event.data);
+        const pkg = normalizePackage(raw);
         setPackages((prev) => {
           const exists = prev.find((p) => p.id === pkg.id);
           if (exists) return prev.map((p) => (p.id === pkg.id ? pkg : p));
@@ -168,48 +231,15 @@ export default function WarehousePage() {
 
     es.addEventListener('package-updated', (event) => {
       try {
-        const pkg = JSON.parse(event.data);
+        const raw = JSON.parse(event.data);
+        const pkg = normalizePackage(raw);
         setPackages((prev) => prev.map((p) => (p.id === pkg.id ? pkg : p)));
 
         // If a package was just delivered, reload spots to update item data
         if (pkg.status === 'DELIVERED') {
           api.getSpots().then((spotsData) => {
-            if (Array.isArray(spotsData) && layout && layout.cellSize > 0) {
-              const itemCounts = new Map<string, number>();
-              const itemsMap = new Map<string, { itemId: number; name: string; sku: string; quantityAvailable: number }[]>();
-
-              spotsData.forEach((spot: {
-                code: string;
-                x: number;
-                y: number;
-                rootPointCode?: string;
-                items: { productId: number; productName: string; sku: string; quantity: number }[];
-              }) => {
-                let row: number;
-                let col: number;
-                if (spot.rootPointCode) {
-                  const parsed = parseSpotToGrid(spot.rootPointCode);
-                  if (parsed) { row = parsed.row; col = parsed.col; }
-                  else { col = Math.round(spot.x / layout.cellSize); row = Math.round(spot.y / layout.cellSize); }
-                } else {
-                  col = Math.round(spot.x / layout.cellSize);
-                  row = Math.round(spot.y / layout.cellSize);
-                }
-
-                const key = `${row}-${col}`;
-                const spotItems = (spot.items || []).map(item => ({
-                  itemId: item.productId, name: item.productName,
-                  sku: item.sku, quantityAvailable: item.quantity,
-                }));
-                const existing = itemsMap.get(key) || [];
-                itemsMap.set(key, [...existing, ...spotItems]);
-
-                const totalQty = (spot.items || []).reduce((sum: number, item) => sum + item.quantity, 0);
-                if (totalQty > 0) {
-                  itemCounts.set(key, (itemCounts.get(key) || 0) + totalQty);
-                }
-              });
-
+            if (Array.isArray(spotsData) && layout && Number(layout.cellSize) > 0) {
+              const { itemCounts, itemsMap } = rebuildCellMaps(spotsData, layout.cellSize);
               setCellItemCounts(itemCounts);
               setCellItemsMap(itemsMap);
             }
@@ -221,46 +251,12 @@ export default function WarehousePage() {
     es.addEventListener('stock-updated', (event) => {
       try {
         const updatedItems = JSON.parse(event.data);
-        if (!Array.isArray(updatedItems) || !layout || layout.cellSize <= 0) return;
+        if (!Array.isArray(updatedItems) || !layout || Number(layout.cellSize) <= 0) return;
 
         // Reload all spots to get accurate counts after stock change
         api.getSpots().then((spotsData) => {
-          if (Array.isArray(spotsData) && layout && layout.cellSize > 0) {
-            const itemCounts = new Map<string, number>();
-            const itemsMap = new Map<string, { itemId: number; name: string; sku: string; quantityAvailable: number }[]>();
-
-            spotsData.forEach((spot: {
-              code: string;
-              x: number;
-              y: number;
-              rootPointCode?: string;
-              items: { productId: number; productName: string; sku: string; quantity: number }[];
-            }) => {
-              let row: number;
-              let col: number;
-              if (spot.rootPointCode) {
-                const parsed = parseSpotToGrid(spot.rootPointCode);
-                if (parsed) { row = parsed.row; col = parsed.col; }
-                else { col = Math.round(spot.x / layout.cellSize); row = Math.round(spot.y / layout.cellSize); }
-              } else {
-                col = Math.round(spot.x / layout.cellSize);
-                row = Math.round(spot.y / layout.cellSize);
-              }
-
-              const key = `${row}-${col}`;
-              const spotItems = (spot.items || []).map(item => ({
-                itemId: item.productId, name: item.productName,
-                sku: item.sku, quantityAvailable: item.quantity,
-              }));
-              const existing = itemsMap.get(key) || [];
-              itemsMap.set(key, [...existing, ...spotItems]);
-
-              const totalQty = (spot.items || []).reduce((sum: number, item) => sum + item.quantity, 0);
-              if (totalQty > 0) {
-                itemCounts.set(key, (itemCounts.get(key) || 0) + totalQty);
-              }
-            });
-
+          if (Array.isArray(spotsData) && layout && Number(layout.cellSize) > 0) {
+            const { itemCounts, itemsMap } = rebuildCellMaps(spotsData, layout.cellSize);
             setCellItemCounts(itemCounts);
             setCellItemsMap(itemsMap);
           }
@@ -283,55 +279,14 @@ export default function WarehousePage() {
       ]);
       if (layoutData) {
         setLayout(layoutData);
-        if (Array.isArray(spotsData) && layoutData.cellSize > 0) {
+        if (Array.isArray(spotsData) && spotsData.length > 0 && Number(layoutData.cellSize) > 0) {
           const gridMap = new Map<string, { row: number; col: number }>();
-          const itemCounts = new Map<string, number>();
-          const itemsMap = new Map<string, { itemId: number; name: string; sku: string; quantityAvailable: number }[]>();
+          const { itemCounts, itemsMap } = rebuildCellMaps(spotsData, layoutData.cellSize);
 
-          spotsData.forEach((spot: {
-            code: string;
-            x: number;
-            y: number;
-            rootPointCode?: string;
-            items: { productId: number; productName: string; sku: string; quantity: number }[];
-          }) => {
-            // Use rootPointCode (e.g. "RP-R02-C01") to resolve grid position accurately
-            // Fall back to x/y coordinate calculation if rootPointCode is missing
-            let row: number;
-            let col: number;
-            if (spot.rootPointCode) {
-              const parsed = parseSpotToGrid(spot.rootPointCode);
-              if (parsed) {
-                row = parsed.row;
-                col = parsed.col;
-              } else {
-                col = Math.round(spot.x / layoutData.cellSize);
-                row = Math.round(spot.y / layoutData.cellSize);
-              }
-            } else {
-              col = Math.round(spot.x / layoutData.cellSize);
-              row = Math.round(spot.y / layoutData.cellSize);
-            }
-
-            gridMap.set(spot.code, { row, col });
-
-            const key = `${row}-${col}`;
-            const spotItems = (spot.items || []).map(item => ({
-              itemId: item.productId,
-              name: item.productName,
-              sku: item.sku,
-              quantityAvailable: item.quantity,
-            }));
-
-            // Merge items from multiple spots at the same cell
-            const existing = itemsMap.get(key) || [];
-            itemsMap.set(key, [...existing, ...spotItems]);
-
-            // Sum item quantities for count badge
-            const totalQty = (spot.items || []).reduce((sum: number, item) => sum + item.quantity, 0);
-            if (totalQty > 0) {
-              itemCounts.set(key, (itemCounts.get(key) || 0) + totalQty);
-            }
+          // Also build spot→grid map for resolving SP- codes
+          spotsData.forEach((spot: any) => {
+            const { row, col } = resolveSpotGridPos(spot, layoutData.cellSize);
+            if (spot.code) gridMap.set(spot.code, { row, col });
           });
 
           setSpotGridMap(gridMap);
@@ -350,7 +305,7 @@ export default function WarehousePage() {
     try {
       const robotsData = await api.getRobots();
       const map = new Map<string, Robot>();
-      robotsData.forEach((r: Robot) => map.set(r.robotId, r));
+      (robotsData || []).forEach((r: Robot) => map.set(r.robotId, r));
       setRobots(map);
     } catch {
       // silently handle
@@ -360,7 +315,7 @@ export default function WarehousePage() {
   const loadPackages = async () => {
     try {
       const packagesData = await api.getPackages();
-      setPackages(packagesData);
+      setPackages(packagesData || []);
     } catch {
       // silently handle
     }

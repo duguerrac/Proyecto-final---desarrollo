@@ -1,0 +1,3 @@
+-- Seed data for warehouse_db
+-- Schema and seed data are managed by Flyway migrations in ms-warehouse-core.
+-- This file exists so the Docker bind-mount in docker-compose.yml resolves correctly.

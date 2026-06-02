@@ -223,8 +223,8 @@ export default function DashboardPage() {
                   {recentOrders.map((order) => (
                     <div key={order.id} className="flex items-center justify-between p-2.5 bg-[#0f172a] rounded-lg">
                       <div>
-                        <p className="text-white text-sm font-medium">{order.orderNumber}</p>
-                        <p className="text-[#64748b] text-xs">{order.items.length} item(s)</p>
+                        <p className="text-white text-sm font-medium">{order.orderNumber || `Order #${order.id}`}</p>
+                        <p className="text-[#64748b] text-xs">{(order.items || order.lines || []).length} item(s)</p>
                       </div>
                       <span className={getOrderStatusBadge(order.status)}>{order.status}</span>
                     </div>
@@ -241,8 +241,8 @@ export default function DashboardPage() {
                   {recentPackages.map((pkg) => (
                     <div key={pkg.id} className="flex items-center justify-between p-2.5 bg-[#0f172a] rounded-lg">
                       <div>
-                        <p className="text-white text-sm font-medium">{pkg.trackingCode}</p>
-                        <p className="text-[#64748b] text-xs">{pkg.productName} × {pkg.quantity}</p>
+                        <p className="text-white text-sm font-medium">{pkg.trackingCode || `Pkg #${pkg.id}`}</p>
+                        <p className="text-[#64748b] text-xs">{pkg.productName || pkg.sku} × {pkg.quantity}</p>
                       </div>
                       <span className={getPackageStatusBadge(pkg.status)}>{pkg.status}</span>
                     </div>
