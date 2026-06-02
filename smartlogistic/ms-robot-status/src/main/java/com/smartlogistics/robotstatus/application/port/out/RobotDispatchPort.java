@@ -48,9 +48,33 @@ public interface RobotDispatchPort {
     void publishPackageTaken(String packageId, String robotId);
 
     /**
+     * Send a STOCK_OUT mission command to a robot for order fulfillment.
+     * Robot goes to pickupSpot (shelf) to pick items, then delivers to deliverySpot.
+     *
+     * @param robotId        the robot to dispatch
+     * @param orderId        the order ID
+     * @param pickupSpotCode spot code where items are stored (shelf)
+     * @param deliverySpotCode spot code for delivery dock
+     * @param itemSku        the item SKU
+     * @param quantity       item quantity
+     */
+    void sendStockOutMission(String robotId, long orderId,
+                             String pickupSpotCode, String deliverySpotCode,
+                             String itemSku, int quantity);
+
+    /**
      * Notify that a package has been delivered.
      *
      * @param packageId the package ID
      */
     void publishPackageDelivered(String packageId);
+
+    /**
+     * Notify that a package/order has been delivered with mission context.
+     *
+     * @param packageId   the package or order ID
+     * @param missionType the mission type (STOCK_IN, STOCK_OUT, etc.)
+     * @param spotCode    the spot code where delivery occurred
+     */
+    void publishPackageDelivered(String packageId, String missionType, String spotCode);
 }

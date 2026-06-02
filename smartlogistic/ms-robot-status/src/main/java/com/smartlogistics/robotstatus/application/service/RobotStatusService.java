@@ -57,8 +57,17 @@ public class RobotStatusService
 
     @Override
     public Robot saveRobot(Robot robot) {
+        // Only publish event if operationalMode or availability actually changed
+        Optional<Robot> prev = robotCachePort.findById(robot.getId());
+        boolean stateChanged = prev.isEmpty()
+                || !prev.get().getOperationalMode().equals(robot.getOperationalMode())
+                || prev.get().isAvailable() != robot.isAvailable();
+
         robotCachePort.save(robot);
-        robotEventPort.publishStatusUpdate(robot);
+
+        if (stateChanged) {
+            robotEventPort.publishStatusUpdate(robot);
+        }
         return robot;
     }
 

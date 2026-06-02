@@ -4,14 +4,17 @@ import com.smartlogistics.warehouse.infrastructure.adapter.in.rest.dto.PackageRe
 import com.smartlogistics.warehouse.infrastructure.adapter.in.rest.dto.ReceivePackageRequest;
 import com.smartlogistics.warehouse.infrastructure.adapter.out.postgres.entity.IncomingPackageJpaEntity;
 import com.smartlogistics.warehouse.infrastructure.adapter.out.postgres.entity.InventoryItemJpaEntity;
+import com.smartlogistics.warehouse.infrastructure.adapter.out.postgres.entity.OrderLineJpaEntity;
 import com.smartlogistics.warehouse.infrastructure.adapter.out.postgres.entity.RootPointJpaEntity;
 import com.smartlogistics.warehouse.infrastructure.adapter.out.postgres.entity.SpotItemJpaEntity;
 import com.smartlogistics.warehouse.infrastructure.adapter.out.postgres.entity.SpotJpaEntity;
+import com.smartlogistics.warehouse.infrastructure.adapter.out.postgres.entity.WarehouseOrderJpaEntity;
 import com.smartlogistics.warehouse.infrastructure.adapter.out.postgres.repository.IncomingPackageJpaRepository;
 import com.smartlogistics.warehouse.infrastructure.adapter.out.postgres.repository.InventoryItemJpaRepository;
 import com.smartlogistics.warehouse.infrastructure.adapter.out.postgres.repository.RootPointJpaRepository;
 import com.smartlogistics.warehouse.infrastructure.adapter.out.postgres.repository.SpotItemJpaRepository;
 import com.smartlogistics.warehouse.infrastructure.adapter.out.postgres.repository.SpotJpaRepository;
+import com.smartlogistics.warehouse.infrastructure.adapter.out.postgres.repository.WarehouseOrderJpaRepository;
 import com.smartlogistics.warehouse.infrastructure.adapter.out.sse.SsePackageAdapter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -39,6 +42,7 @@ public class PackageController {
     private final SpotJpaRepository spotRepo;
     private final SpotItemJpaRepository spotItemRepo;
     private final RootPointJpaRepository rootPointRepo;
+    private final WarehouseOrderJpaRepository orderRepo;
     private final RabbitTemplate rabbitTemplate;
     private final String exchange;
     private final SsePackageAdapter ssePackageAdapter;
@@ -52,6 +56,7 @@ public class PackageController {
                              SpotJpaRepository spotRepo,
                              SpotItemJpaRepository spotItemRepo,
                              RootPointJpaRepository rootPointRepo,
+                             WarehouseOrderJpaRepository orderRepo,
                              RabbitTemplate rabbitTemplate,
                              SsePackageAdapter ssePackageAdapter,
                              @Value("${rabbitmq.exchange:logistics.exchange}") String exchange) {
@@ -60,6 +65,7 @@ public class PackageController {
         this.spotRepo = spotRepo;
         this.spotItemRepo = spotItemRepo;
         this.rootPointRepo = rootPointRepo;
+        this.orderRepo = orderRepo;
         this.rabbitTemplate = rabbitTemplate;
         this.ssePackageAdapter = ssePackageAdapter;
         this.exchange = exchange;
@@ -95,32 +101,79 @@ public class PackageController {
         try {
             var tree = objectMapper.readTree(json);
             Long packageId = tree.get("packageId").asLong();
+            String missionType = tree.has("missionType") ? tree.get("missionType").asText() : "";
 
-            packageRepo.findById(packageId).ifPresent(pkg -> {
-                // targetSpotCode may be a root point code (RP-R02-C01) or a spot code (SP-A1-01)
-                SpotJpaEntity spot = findSpotByCode(pkg.getTargetSpotCode());
-
-                SpotItemJpaEntity spotItem = spotItemRepo
-                        .findBySpotIdAndItemId(spot.getId(), pkg.getItemId())
-                        .orElseGet(() -> {
-                            SpotItemJpaEntity si = new SpotItemJpaEntity();
-                            si.setSpotId(spot.getId());
-                            si.setItemId(pkg.getItemId());
-                            si.setQuantityReserved(0);
-                            return si;
-                        });
-
-                spotItem.setQuantityAvailable(spotItem.getQuantityAvailable() + pkg.getQuantity());
-                spotItemRepo.save(spotItem);
-
-                pkg.setStatus("DELIVERED");
-                packageRepo.save(pkg);
-                log.info("[RabbitMQ] Package {} → DELIVERED. Added {}x SKU {} to spot {}",
-                        packageId, pkg.getQuantity(), pkg.getSku(), pkg.getTargetSpotCode());
-            });
+            if ("STOCK_OUT".equals(missionType)) {
+                // STOCK_OUT: Items were picked from shelf and delivered to dispatch dock.
+                // packageId is actually the orderId in this case.
+                handleStockOutDelivered(packageId);
+            } else {
+                // STOCK_IN (default): Items were delivered to a shelf spot — increment stock
+                handleStockInDelivered(packageId);
+            }
         } catch (Exception e) {
             log.error("Error processing package.delivered", e);
         }
+    }
+
+    private void handleStockInDelivered(Long packageId) {
+        packageRepo.findById(packageId).ifPresent(pkg -> {
+            SpotJpaEntity spot = findSpotByCode(pkg.getTargetSpotCode());
+
+            SpotItemJpaEntity spotItem = spotItemRepo
+                    .findBySpotIdAndItemId(spot.getId(), pkg.getItemId())
+                    .orElseGet(() -> {
+                        SpotItemJpaEntity si = new SpotItemJpaEntity();
+                        si.setSpotId(spot.getId());
+                        si.setItemId(pkg.getItemId());
+                        si.setQuantityReserved(0);
+                        return si;
+                    });
+
+            spotItem.setQuantityAvailable(spotItem.getQuantityAvailable() + pkg.getQuantity());
+            spotItemRepo.save(spotItem);
+
+            pkg.setStatus("DELIVERED");
+            packageRepo.save(pkg);
+            log.info("[RabbitMQ] STOCK_IN Package {} → DELIVERED. Added {}x SKU {} to spot {}",
+                    packageId, pkg.getQuantity(), pkg.getSku(), pkg.getTargetSpotCode());
+
+            broadcastPackageUpdate("package-updated", pkg);
+            broadcastStockUpdate(spot.getId());
+        });
+    }
+
+    private void handleStockOutDelivered(Long orderId) {
+        orderRepo.findById(orderId).ifPresent(order -> {
+            String pickupSpotCode = order.getPickupSpotCode();
+            SpotJpaEntity spot = findSpotByCode(pickupSpotCode);
+
+            for (OrderLineJpaEntity line : order.getLines()) {
+                // Find the inventory item by SKU to get its ID
+                itemRepo.findBySku(line.getSku()).ifPresent(item -> {
+                    SpotItemJpaEntity spotItem = spotItemRepo
+                            .findBySpotIdAndItemId(spot.getId(), item.getId())
+                            .orElse(null);
+
+                    if (spotItem != null) {
+                        int newQty = Math.max(0, spotItem.getQuantityAvailable() - line.getQuantity());
+                        spotItem.setQuantityAvailable(newQty);
+                        spotItemRepo.save(spotItem);
+                        log.info("[RabbitMQ] STOCK_OUT Order {} → Decremented {}x SKU {} from spot {} (now {})",
+                                orderId, line.getQuantity(), line.getSku(), pickupSpotCode, newQty);
+                    } else {
+                        log.warn("[RabbitMQ] STOCK_OUT Order {} → No spot_item found for SKU {} at spot {}",
+                                orderId, line.getSku(), pickupSpotCode);
+                    }
+                });
+            }
+
+            order.setStatus("COMPLETED");
+            orderRepo.save(order);
+            log.info("[RabbitMQ] STOCK_OUT Order {} → COMPLETED", orderId);
+
+            broadcastStockUpdate(spot.getId());
+        });
     }
 
     // ─── REST Endpoints ───
@@ -270,6 +323,33 @@ public class PackageController {
             log.info("[SSE-Pkg] Broadcast {} for package {}", eventType, pkg.getId());
         } catch (Exception e) {
             log.warn("[SSE-Pkg] Failed to broadcast {}: {}", eventType, e.getMessage());
+        }
+    }
+
+    /**
+     * Broadcast a stock-updated event via SSE so the warehouse UI refreshes item counts.
+     * Sends the current items for the given spot.
+     */
+    private void broadcastStockUpdate(Long spotId) {
+        try {
+            var items = spotItemRepo.findBySpotId(spotId).stream()
+                    .map(si -> {
+                        String sku = itemRepo.findById(si.getItemId())
+                                .map(InventoryItemJpaEntity::getSku)
+                                .orElse("UNKNOWN");
+                        return java.util.Map.of(
+                                "itemId", si.getItemId(),
+                                "sku", sku,
+                                "quantityAvailable", si.getQuantityAvailable(),
+                                "spotId", spotId
+                        );
+                    })
+                    .toList();
+            String json = objectMapper.writeValueAsString(items);
+            ssePackageAdapter.broadcastPackageEvent("stock-updated", json);
+            log.info("[SSE-Pkg] Broadcast stock-updated for spot {} ({} items)", spotId, items.size());
+        } catch (Exception e) {
+            log.warn("[SSE-Pkg] Failed to broadcast stock-updated: {}", e.getMessage());
         }
     }
 

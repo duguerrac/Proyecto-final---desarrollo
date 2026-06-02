@@ -10,6 +10,9 @@
 /** Delegate broadcast when a STOMP message arrives on a subscribed destination */
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnStompMessage, const FString&, Destination, const FString&, Body);
 
+/** Delegate broadcast when the STOMP session is established (CONNECTED frame received) */
+DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnStompConnected);
+
 /**
  * Minimal STOMP 1.2 client over WebSocket.
  * Connects to RabbitMQ Web STOMP plugin (ws://host:15674/ws).
@@ -48,6 +51,10 @@ public:
     UPROPERTY(BlueprintAssignable, Category = "SmartLogistics")
     FOnStompMessage OnMessageReceived;
 
+    /** Delegate: STOMP session established (CONNECTED frame received) */
+    UPROPERTY(BlueprintAssignable, Category = "SmartLogistics")
+    FOnStompConnected OnConnected;
+
 private:
     /** Underlying WebSocket connection */
     TSharedPtr<IWebSocket> WebSocket;
@@ -57,6 +64,9 @@ private:
 
     /** Connection in-progress flag (prevents double-connect) */
     bool bIsConnecting = false;
+
+    /** Shutdown flag — set in Disconnect() to prevent callbacks from accessing destroyed state */
+    bool bIsShuttingDown = false;
 
     /** Timestamp when connection attempt started (for timeout) */
     float ConnectStartTime = 0.0f;
@@ -83,7 +93,17 @@ private:
     FTimerHandle HeartbeatTimerHandle;
 
     /** Heartbeat interval (ms) negotiated with server */
-    int32 HeartbeatIntervalMs = 10000;
+    int32 HeartbeatIntervalMs = 30000;
+
+    /** Timestamp (seconds) of last message received from server (for heartbeat monitoring) */
+    float LastServerActivityTime = 0.0f;
+
+    /** Maximum tolerated silence from server before considering connection dead (seconds) */
+    float ServerSilenceTimeoutSec = 90.0f;
+
+    /** Delegate broadcast when the connection is lost (heartbeat timeout) */
+    UPROPERTY(BlueprintAssignable, Category = "SmartLogistics")
+    FOnStompMessage OnConnectionLost;
 
     /** Build a STOMP frame string */
     static FString BuildFrame(const FString& Command, const TMap<FString, FString>& Headers, const FString& Body = TEXT(""));

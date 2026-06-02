@@ -1,8 +1,10 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { api } from '@/lib/api';
 import { Package as PackageType, ReceivePackageRequest } from '@/lib/types';
+
+const PACKAGE_SSE_URL = process.env.NEXT_PUBLIC_PACKAGE_SSE_URL || 'http://localhost:8086/api/packages/stream';
 
 export default function PackagesPage() {
   const [packages, setPackages] = useState<PackageType[]>([]);
@@ -12,6 +14,7 @@ export default function PackagesPage() {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [filter, setFilter] = useState<string>('ALL');
+  const packageEventSourceRef = useRef<EventSource | null>(null);
 
   // Form state — matches backend ReceivePackageRequest { sku, quantity, receptionSpotCode }
   const [form, setForm] = useState<ReceivePackageRequest>({
@@ -22,6 +25,45 @@ export default function PackagesPage() {
 
   useEffect(() => {
     loadPackages();
+    connectPackageSSE();
+
+    return () => {
+      if (packageEventSourceRef.current) {
+        packageEventSourceRef.current.close();
+      }
+    };
+  }, []);
+
+  const connectPackageSSE = useCallback(() => {
+    if (packageEventSourceRef.current) {
+      packageEventSourceRef.current.close();
+    }
+
+    const es = new EventSource(PACKAGE_SSE_URL);
+    packageEventSourceRef.current = es;
+
+    es.addEventListener('package-received', (event) => {
+      try {
+        const pkg = JSON.parse(event.data);
+        setPackages((prev) => {
+          const exists = prev.find((p) => p.id === pkg.id);
+          if (exists) return prev.map((p) => (p.id === pkg.id ? pkg : p));
+          return [pkg, ...prev];
+        });
+      } catch { /* ignore */ }
+    });
+
+    es.addEventListener('package-updated', (event) => {
+      try {
+        const pkg = JSON.parse(event.data);
+        setPackages((prev) => prev.map((p) => (p.id === pkg.id ? pkg : p)));
+      } catch { /* ignore */ }
+    });
+
+    es.onerror = () => {
+      es.close();
+      setTimeout(connectPackageSSE, 5000);
+    };
   }, []);
 
   const loadPackages = async () => {

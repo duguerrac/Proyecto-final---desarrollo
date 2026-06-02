@@ -105,14 +105,49 @@ public class RabbitRobotDispatchAdapter implements RobotDispatchPort {
     }
 
     @Override
+    public void sendStockOutMission(String robotId, long orderId,
+                                    String pickupSpotCode, String deliverySpotCode,
+                                    String itemSku, int quantity) {
+        try {
+            Map<String, Object> mission = new HashMap<>();
+            mission.put("robotId", robotId);
+            mission.put("missionType", "STOCK_OUT");
+            mission.put("orderId", orderId);
+            mission.put("pickupSpotCode", pickupSpotCode);
+            mission.put("deliverySpotCode", deliverySpotCode);
+            mission.put("itemSku", itemSku);
+            mission.put("quantity", quantity);
+
+            String json = objectMapper.writeValueAsString(mission);
+            rabbitTemplate.convertAndSend(RabbitMQConfig.EXCHANGE, RabbitMQConfig.RK_ROBOT_COMMAND, json);
+            log.info("📤 Published STOCK_OUT mission for robot {} (order #{}) → pickup={}, delivery={}",
+                    robotId, orderId, pickupSpotCode, deliverySpotCode);
+        } catch (Exception e) {
+            log.error("Failed to publish STOCK_OUT mission for robot {}: {}", robotId, e.getMessage());
+        }
+    }
+
+    @Override
     public void publishPackageDelivered(String packageId) {
+        // Delegate to the enriched overload without mission context
+        publishPackageDelivered(packageId, "", "");
+    }
+
+    @Override
+    public void publishPackageDelivered(String packageId, String missionType, String spotCode) {
         try {
             Map<String, Object> event = new HashMap<>();
             event.put("packageId", packageId);
+            if (missionType != null && !missionType.isEmpty()) {
+                event.put("missionType", missionType);
+            }
+            if (spotCode != null && !spotCode.isEmpty()) {
+                event.put("spotCode", spotCode);
+            }
 
             String json = objectMapper.writeValueAsString(event);
             rabbitTemplate.convertAndSend(RabbitMQConfig.EXCHANGE, RK_PACKAGE_DELIVERED, json);
-            log.info("📤 Published package.delivered for package #{}", packageId);
+            log.info("📤 Published package.delivered for package #{} (missionType={}, spot={})", packageId, missionType, spotCode);
         } catch (Exception e) {
             log.error("Failed to publish package.delivered: {}", e.getMessage());
         }

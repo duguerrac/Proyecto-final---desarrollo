@@ -44,6 +44,11 @@ public class RabbitMQConfig {
         return QueueBuilder.durable("route.completed").build();
     }
 
+    @Bean
+    public Queue robotStatusUpdateQueue() {
+        return QueueBuilder.durable("robot.status.update.wh").build();
+    }
+
     // ─── Bindings ───
 
     @Bean
@@ -59,5 +64,10 @@ public class RabbitMQConfig {
     @Bean
     public Binding routeCompletedBinding(Queue routeCompletedQueue, TopicExchange logisticsExchange) {
         return BindingBuilder.bind(routeCompletedQueue).to(logisticsExchange).with(routeCompletedKey);
+    }
+
+    @Bean
+    public Binding robotStatusUpdateBinding(Queue robotStatusUpdateQueue, TopicExchange logisticsExchange) {
+        return BindingBuilder.bind(robotStatusUpdateQueue).to(logisticsExchange).with("robot.status.update");
     }
 }

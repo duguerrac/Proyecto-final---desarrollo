@@ -170,6 +170,17 @@ public:
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Warehouse|Dimensions")
     float WallHeight = 800.0f;
 
+    /**
+     * Navigation offset applied to robot target positions (waypoints, spot positions).
+     * Shifts the target inward from cell edges so the robot body doesn't clip through
+     * walls, shelves, or obstacles. Applied as a fraction of CellSize.
+     * Example: 0.25 means offset by CellSize*0.25 = 50cm for a 200cm cell,
+     * keeping the robot centered in the navigable area of the cell.
+     */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Warehouse|Dimensions",
+              meta = (ClampMin = "0.0", ClampMax = "0.5"))
+    float RobotNavOffsetFraction = 0.35f;
+
     // ─── Shelf Config ────────────────────────────────────────────
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Warehouse|Shelves")
     int32 NumShelfRows = 4;
@@ -253,6 +264,14 @@ public:
      * Returns the center of the cell in world space.
      */
     FVector CellToWorldPosition(int32 Row, int32 Col) const;
+
+    /**
+     * Convert a grid cell (row, col) to a navigation position for robots.
+     * Same as CellToWorldPosition but applies RobotNavOffsetFraction to push
+     * the target inward from cell edges (prevents robot clipping through walls/shelves).
+     * The offset direction is toward the center of the grid.
+     */
+    FVector CellToNavigationPosition(int32 Row, int32 Col) const;
 
     /**
      * Get cell size currently in use (from dynamic layout or default).

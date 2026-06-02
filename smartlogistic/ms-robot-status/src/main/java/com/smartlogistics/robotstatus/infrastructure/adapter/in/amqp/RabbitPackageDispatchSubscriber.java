@@ -75,15 +75,17 @@ public class RabbitPackageDispatchSubscriber {
         String missionEvent = event.has("event") ? event.get("event").asText() : "";
         String robotId = event.has("robotId") ? event.get("robotId").asText() : "";
         String packageId = event.has("packageId") ? event.get("packageId").asText() : "";
+        String missionType = event.has("missionType") ? event.get("missionType").asText() : "";
+        String spotCode = event.has("spotCode") ? event.get("spotCode").asText() : "";
 
-        log.info("🏁 Mission event: type={}, robot={}, package={}", missionEvent, robotId, packageId);
+        log.info("🏁 Mission event: type={}, robot={}, package={}, missionType={}", missionEvent, robotId, packageId, missionType);
 
         switch (missionEvent) {
             case "PACKAGE_PICKED" -> {
                 robotDispatchPort.publishPackageTaken(packageId, robotId);
             }
             case "PACKAGE_DELIVERED" -> {
-                robotDispatchPort.publishPackageDelivered(packageId);
+                robotDispatchPort.publishPackageDelivered(packageId, missionType, spotCode);
                 dispatchRobotUseCase.markRobotAvailable(robotId);
                 log.info("✅ Robot {} is now available again", robotId);
             }

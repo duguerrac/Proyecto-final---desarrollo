@@ -4,6 +4,7 @@ import com.smartlogistics.warehouse.infrastructure.adapter.in.rest.dto.CreateOrd
 import com.smartlogistics.warehouse.infrastructure.adapter.in.rest.dto.OrderResponse;
 import com.smartlogistics.warehouse.infrastructure.adapter.out.postgres.entity.OrderLineJpaEntity;
 import com.smartlogistics.warehouse.infrastructure.adapter.out.postgres.entity.WarehouseOrderJpaEntity;
+import com.smartlogistics.warehouse.infrastructure.adapter.out.postgres.repository.SpotItemJpaRepository;
 import com.smartlogistics.warehouse.infrastructure.adapter.out.postgres.repository.WarehouseOrderJpaRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -23,27 +24,44 @@ public class OrderController {
     private static final Logger log = LoggerFactory.getLogger(OrderController.class);
 
     private final WarehouseOrderJpaRepository orderRepo;
+    private final SpotItemJpaRepository spotItemRepo;
     private final RabbitTemplate rabbitTemplate;
     private final String exchange;
 
     public OrderController(WarehouseOrderJpaRepository orderRepo,
+                           SpotItemJpaRepository spotItemRepo,
                            RabbitTemplate rabbitTemplate,
                            @Value("${rabbitmq.exchange:logistics.exchange}") String exchange) {
         this.orderRepo = orderRepo;
+        this.spotItemRepo = spotItemRepo;
         this.rabbitTemplate = rabbitTemplate;
         this.exchange = exchange;
     }
 
     @PostMapping
     public ResponseEntity<OrderResponse> create(@RequestBody CreateOrderRequest req) {
+        // Auto-resolve pickupSpotCode from SKU if not provided
+        String pickupSpotCode = req.getPickupSpotCode();
+        if ((pickupSpotCode == null || pickupSpotCode.isBlank()) && req.getLines() != null && !req.getLines().isEmpty()) {
+            String firstSku = req.getLines().get(0).getSku();
+            List<Object[]> spots = spotItemRepo.findSpotsBySku(firstSku);
+            if (!spots.isEmpty()) {
+                pickupSpotCode = (String) spots.get(0)[1]; // spot code
+                log.info("[Auto-resolve] SKU '{}' found at spot '{}'", firstSku, pickupSpotCode);
+            } else {
+                log.warn("[Auto-resolve] SKU '{}' not found in any spot", firstSku);
+            }
+        }
+
         WarehouseOrderJpaEntity order = new WarehouseOrderJpaEntity();
-        order.setPickupSpotCode(req.getPickupSpotCode());
-        order.setDeliveryPoint(req.getDeliveryPoint());
+        order.setPickupSpotCode(pickupSpotCode);
+        order.setDeliveryPoint(req.getDeliveryPoint() != null ? req.getDeliveryPoint() : "DELIVERY-1");
 
         for (CreateOrderRequest.OrderLineDTO line : req.getLines()) {
             OrderLineJpaEntity ol = new OrderLineJpaEntity();
             ol.setSku(line.getSku());
             ol.setQuantity(line.getQuantity());
+            ol.setOrder(order);  // set bidirectional reference
             order.getLines().add(ol);
         }
 
@@ -51,8 +69,8 @@ public class OrderController {
 
         // Publish order.created event via RabbitMQ
         String payload = buildOrderCreatedPayload(order);
-        rabbitTemplate.convertAndSend(exchange, "order.created", payload);
-        log.info("[RabbitMQ] Published order.created: {}", payload);
+        rabbitTemplate.convertAndSend(exchange, "order.dispatched", payload);
+        log.info("[RabbitMQ] Published order.dispatched: {}", payload);
 
         return ResponseEntity.ok(toResponse(order));
     }
@@ -120,8 +138,8 @@ public class OrderController {
         StringBuilder sb = new StringBuilder();
         sb.append("{\"orderId\":").append(order.getId());
         sb.append(",\"status\":\"").append(order.getStatus()).append("\"");
-        sb.append(",\"pickupSpotCode\":\"").append(order.getPickupSpotCode()).append("\"");
-        sb.append(",\"deliveryPoint\":\"").append(order.getDeliveryPoint()).append("\"");
+        sb.append(",\"pickupSpotCode\":\"").append(order.getPickupSpotCode() != null ? order.getPickupSpotCode() : "").append("\"");
+        sb.append(",\"deliveryPoint\":\"").append(order.getDeliveryPoint() != null ? order.getDeliveryPoint() : "").append("\"");
         sb.append(",\"lines\":[");
         for (int i = 0; i < order.getLines().size(); i++) {
             OrderLineJpaEntity l = order.getLines().get(i);

@@ -93,7 +93,8 @@ public class SpotController {
     public ResponseEntity<List<SpotItemDTO>> getItemsByCell(
             @PathVariable int row, @PathVariable int col) {
 
-        String code = "RP_" + row + "_" + col;
+        // Root points use RP-Rxx-Cyy format (e.g. RP-R02-C01)
+        String code = String.format("RP-R%02d-C%02d", row, col);
         Optional<RootPointJpaEntity> rpOpt = rootPointRepo.findByCode(code);
         if (rpOpt.isEmpty()) return ResponseEntity.ok(Collections.emptyList());
 
@@ -111,9 +112,17 @@ public class SpotController {
     // ── helpers ──────────────────────────────────────────────
 
     private SpotDTO toSpotDTO(SpotJpaEntity s) {
+        // Resolve root point code from rootPointId
+        String rootPointCode = null;
+        if (s.getRootPointId() != null) {
+            rootPointCode = rootPointRepo.findById(s.getRootPointId())
+                    .map(RootPointJpaEntity::getCode)
+                    .orElse(null);
+        }
         return new SpotDTO(
                 s.getId(), s.getCode(), s.getAisle(),
                 s.getSection(), s.getX(), s.getY(),
+                rootPointCode,
                 buildItemDTOs(s.getId()));
     }
 
