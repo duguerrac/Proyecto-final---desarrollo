@@ -1,0 +1,43 @@
+<mxfile host="Electron" agent="MCP">
+  <diagram name="SmartLogistics - System Context (C4 Level 1)" id="smartlogistics___system_context__c4_level_1_">
+    <mxGraphModel dx="1030" dy="634" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1200" pageHeight="800" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="10" parent="1" style="shape=actor;outline=connect;whiteSpace=wrap;html=1;fillColor=#08427B;strokeColor=#08427B;fontColor=#ffffff;fontSize=9;align=center;verticalAlign=middle;" value="&lt;div&gt;&lt;b&gt;&lt;br&gt;&lt;/b&gt;&lt;/div&gt;&lt;b&gt;&lt;div&gt;&lt;b&gt;&lt;br&gt;&lt;/b&gt;&lt;/div&gt;&lt;div&gt;&lt;b&gt;&lt;br&gt;&lt;/b&gt;&lt;/div&gt;&lt;div&gt;&lt;b&gt;&lt;br&gt;&lt;/b&gt;&lt;/div&gt;Operador Logístico&lt;/b&gt;&lt;br&gt;[Person]&lt;br&gt;&lt;br&gt;Gestiona órdenes, monitorea robots y visualiza el estado del almacén" vertex="1">
+          <mxGeometry height="150" width="200" x="50" y="80" as="geometry" />
+        </mxCell>
+        <mxCell id="11" parent="1" style="shape=actor;outline=connect;whiteSpace=wrap;html=1;fillColor=#686868;strokeColor=#686868;fontColor=#ffffff;fontSize=9;align=center;verticalAlign=middle;" value="&lt;div&gt;&lt;b&gt;&lt;br&gt;&lt;/b&gt;&lt;/div&gt;&lt;b&gt;&lt;div&gt;&lt;b&gt;&lt;br&gt;&lt;/b&gt;&lt;/div&gt;&lt;div&gt;&lt;b&gt;&lt;br&gt;&lt;/b&gt;&lt;/div&gt;Usuario Web&lt;/b&gt;&lt;br&gt;[Person]&lt;br&gt;&lt;br&gt;Accede al dashboard vía navegador" vertex="1">
+          <mxGeometry height="150" width="200" x="50" y="500" as="geometry" />
+        </mxCell>
+        <mxCell id="12" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#1168BD;strokeColor=#0B4884;fontColor=#ffffff;fontSize=10;align=center;verticalAlign=middle;arcSize=10;" value="&lt;b&gt;SmartLogistics&lt;/b&gt;&lt;br&gt;[Software System]&lt;br&gt;&lt;br&gt;Plataforma de coordinación de almacenes autónomos" vertex="1">
+          <mxGeometry height="160" width="340" x="380" y="280" as="geometry" />
+        </mxCell>
+        <mxCell id="13" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#999999;strokeColor=#6C6C6C;fontColor=#ffffff;fontSize=10;align=center;verticalAlign=middle;arcSize=10;" value="&lt;b&gt;UE5 Robot Simulation&lt;/b&gt;&lt;br&gt;[Software System]&lt;br&gt;&lt;br&gt;Simulación de flota de robots autónomos en Unreal Engine 5" vertex="1">
+          <mxGeometry height="130" width="260" x="790" y="90" as="geometry" />
+        </mxCell>
+        <mxCell id="14" parent="1" style="shape=actor;outline=connect;whiteSpace=wrap;html=1;fillColor=#686868;strokeColor=#686868;fontColor=#ffffff;fontSize=9;align=center;verticalAlign=middle;" value="&lt;div&gt;&lt;b&gt;&lt;br&gt;&lt;/b&gt;&lt;/div&gt;&lt;b&gt;&lt;div&gt;&lt;b&gt;&lt;br&gt;&lt;/b&gt;&lt;/div&gt;&lt;div&gt;&lt;b&gt;&lt;br&gt;&lt;/b&gt;&lt;/div&gt;Administrador de Monitoreo&lt;/b&gt;&lt;br&gt;[Person]&lt;br&gt;&lt;br&gt;Visualiza métricas, trazas y logs en Grafana y Jaeger" vertex="1">
+          <mxGeometry height="150" width="260" x="850" y="480" as="geometry" />
+        </mxCell>
+        <mxCell id="rel_op_sys" edge="1" parent="1" source="10" style="endArrow=block;endFill=1;html=1;rounded=1;fontSize=8;strokeColor=#2980B9;fontColor=#2980B9;" target="12" value="Crea y gestiona órdenes de despacho [HTTPS]">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="rel_op_sys2" edge="1" parent="1" source="10" style="endArrow=block;endFill=1;html=1;rounded=1;fontSize=8;strokeColor=#2980B9;fontColor=#2980B9;" target="12" value="Asigna robots a rutas [HTTPS]">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="rel_wb_sys" edge="1" parent="1" source="11" style="endArrow=block;endFill=1;html=1;rounded=1;fontSize=8;strokeColor=#2980B9;fontColor=#2980B9;" target="12" value="Visualiza dashboard [HTTPS]">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="rel_ue5_sys" edge="1" parent="1" source="13" style="endArrow=block;endFill=1;html=1;rounded=1;fontSize=8;strokeColor=#2980B9;fontColor=#2980B9;" target="12" value="Reporta telemetría de robots [HTTP REST + STOMP]">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="rel_sys_ue5" edge="1" parent="1" source="12" style="endArrow=block;endFill=1;html=1;rounded=1;fontSize=8;strokeColor=#2980B9;fontColor=#2980B9;" target="13" value="Comandos de misión y control [REST]">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="rel_mon_sys" edge="1" parent="1" source="14" style="endArrow=block;endFill=1;html=1;rounded=1;fontSize=8;strokeColor=#2980B9;fontColor=#2980B9;" target="12" value="Monitorea métricas y trazas [HTTP]">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

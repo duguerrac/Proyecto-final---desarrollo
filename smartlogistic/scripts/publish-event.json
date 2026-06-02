@@ -1,1 +1,0 @@
-{"properties":{"content_type":"application/json"},"routing_key":"route.completed","payload":"{\"eventId\":\"evt-001\",\"orderId\":\"ORD-001\",\"robotId\":\"RBT-01\",\"path\":[\"A1\",\"B2\",\"C3\"],\"distance\":150.0,\"duration\":45,\"timestamp\":\"2026-05-26T13:00:00Z\"}","payload_encoding":"string"}
