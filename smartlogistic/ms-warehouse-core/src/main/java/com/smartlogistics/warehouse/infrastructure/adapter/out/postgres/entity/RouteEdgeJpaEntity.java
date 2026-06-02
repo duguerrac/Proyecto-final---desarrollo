@@ -26,8 +26,13 @@ public class RouteEdgeJpaEntity {
     private BigDecimal weight;
 
     public Long getSourceId() { return sourceId; }
+    public void setSourceId(Long sourceId) { this.sourceId = sourceId; }
     public Long getTargetId() { return targetId; }
+    public void setTargetId(Long targetId) { this.targetId = targetId; }
     public BigDecimal getDistance() { return distance; }
+    public void setDistance(BigDecimal distance) { this.distance = distance; }
     public boolean isBidirectional() { return bidirectional; }
+    public void setBidirectional(boolean bidirectional) { this.bidirectional = bidirectional; }
     public BigDecimal getWeight() { return weight; }
+    public void setWeight(BigDecimal weight) { this.weight = weight; }
 }

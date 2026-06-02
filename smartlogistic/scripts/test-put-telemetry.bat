@@ -1,0 +1,2 @@
+@echo off
+curl.exe -v -X PUT http://localhost:8082/api/robots/RBT-01/telemetry -H "Content-Type: application/json" -d "{\"batteryLevel\":90,\"currentLocation\":\"RP-R02-C03\",\"operationalMode\":\"MOVING\"}"

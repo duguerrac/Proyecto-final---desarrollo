@@ -4,9 +4,9 @@ import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 
 @SpringBootApplication
-public class SmartLogisticRobotStatusApplication {
+public class RobotStatusApplication {
 
     public static void main(String[] args) {
-        SpringApplication.run(SmartLogisticRobotStatusApplication.class, args);
+        SpringApplication.run(RobotStatusApplication.class, args);
     }
 }

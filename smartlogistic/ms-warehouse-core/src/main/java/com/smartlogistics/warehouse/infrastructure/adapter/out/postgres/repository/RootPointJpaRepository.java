@@ -2,6 +2,7 @@ package com.smartlogistics.warehouse.infrastructure.adapter.out.postgres.reposit
 
 import com.smartlogistics.warehouse.infrastructure.adapter.out.postgres.entity.RootPointJpaEntity;
 import java.util.List;
+import java.util.Optional;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -9,6 +10,7 @@ import org.springframework.data.repository.query.Param;
 public interface RootPointJpaRepository extends JpaRepository<RootPointJpaEntity, Long> {
     List<RootPointJpaEntity> findAllByOrderByIdAsc();
     List<RootPointJpaEntity> findByIdInOrderByIdAsc(List<Long> ids);
+    Optional<RootPointJpaEntity> findByCode(String code);
 
     @Query(value = """
             SELECT DISTINCT rp.*

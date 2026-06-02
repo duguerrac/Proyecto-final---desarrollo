@@ -23,10 +23,20 @@ spring:
   rabbitmq:
     host: ${SPRING_RABBITMQ_HOST:localhost}
     port: ${SPRING_RABBITMQ_PORT:5672}
+    username: ${SPRING_RABBITMQ_USER:guest}
+    password: ${SPRING_RABBITMQ_PASS:guest}
 
 robot-status:
   base-url: ${ROBOT_STATUS_URL:http://localhost:8082}
   timeout-ms: ${ROBOT_STATUS_TIMEOUT_MS:2000}
+
+rabbitmq:
+  exchange: logistics.exchange
+  routing-key:
+    route-completed: route.completed
+  queue:
+    package-taken: package.taken
+    package-delivered: package.delivered
 
 warehouse:
   id: ${WAREHOUSE_ID:WH-01}

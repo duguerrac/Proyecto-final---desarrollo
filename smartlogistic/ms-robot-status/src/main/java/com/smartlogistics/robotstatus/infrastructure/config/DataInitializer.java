@@ -18,10 +18,12 @@ public class DataInitializer implements CommandLineRunner {
 
     @Override
     public void run(String... args) {
-        cache.save(new Robot("RBT-01", "Alpha", 85, true, "RP-START", "AUTONOMOUS"));
-        cache.save(new Robot("RBT-02", "Beta", 72, true, "RP-A1-02", "AUTONOMOUS"));
-        cache.save(new Robot("RBT-03", "Gamma", 45, true, "RP-B1-01", "AUTONOMOUS"));
-        cache.save(new Robot("RBT-LOW", "Delta", 10, true, "RP-CHARGE", "CHARGING"));
-        cache.save(new Robot("RBT-MID", "Epsilon", 12, false, "RP-EXIT", "MAINTENANCE"));
+        // Locations must match V8 grid layout root_point codes
+        // RobotStatus enum: IDLE, MOVING, LOADING, UNLOADING, CHARGING, ERROR, DISPATCHED
+        cache.save(new Robot("RBT-01", "Alpha",   85, true,  "RP-R00-C00", "IDLE"));       // START/entry
+        cache.save(new Robot("RBT-02", "Beta",    72, true,  "RP-R01-C05", "IDLE"));       // Main corridor
+        cache.save(new Robot("RBT-03", "Gamma",   45, true,  "RP-R03-C05", "IDLE"));       // Middle corridor
+        cache.save(new Robot("RBT-LOW", "Delta",  10, true,  "RP-R04-C00", "CHARGING"));   // Charging station
+        cache.save(new Robot("RBT-MID", "Epsilon", 12, false, "RP-R05-C09", "ERROR"));     // Charging station (maintenance)
     }
 }

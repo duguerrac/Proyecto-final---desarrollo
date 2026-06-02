@@ -1,0 +1,2 @@
+ALTER TABLE inventory_item ADD COLUMN IF NOT EXISTS fragile BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE inventory_item ADD COLUMN IF NOT EXISTS default_speed_limit DECIMAL(5,2);

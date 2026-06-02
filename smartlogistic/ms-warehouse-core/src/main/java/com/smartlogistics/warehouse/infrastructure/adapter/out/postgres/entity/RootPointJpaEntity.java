@@ -7,7 +7,6 @@ import java.math.BigDecimal;
 @Table(name = "root_point")
 public class RootPointJpaEntity {
     @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
     @Column(nullable = false, unique = true, length = 50)
@@ -29,10 +28,17 @@ public class RootPointJpaEntity {
     private boolean blocked;
 
     public Long getId() { return id; }
+    public void setId(Long id) { this.id = id; }
     public String getCode() { return code; }
+    public void setCode(String code) { this.code = code; }
     public BigDecimal getX() { return x; }
+    public void setX(BigDecimal x) { this.x = x; }
     public BigDecimal getY() { return y; }
+    public void setY(BigDecimal y) { this.y = y; }
     public int getZLevel() { return zLevel; }
+    public void setZLevel(int zLevel) { this.zLevel = zLevel; }
     public String getType() { return type; }
+    public void setType(String type) { this.type = type; }
     public boolean isBlocked() { return blocked; }
+    public void setBlocked(boolean blocked) { this.blocked = blocked; }
 }
