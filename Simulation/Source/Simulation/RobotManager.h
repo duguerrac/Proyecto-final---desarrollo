@@ -65,6 +65,8 @@ public:
     /** Number of events received in this session. */
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "SmartLogistics|Status")
     int32 TotalEventsReceived = 0;
+    float StatusDisplayTimer = 0.0f;
+    float StompReconnectTimer = 0.0f;
 
     /** Is the backend connected? */
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "SmartLogistics|Status")
@@ -187,6 +189,18 @@ private:
 
     /** Fetch robots from the robot-status backend API and spawn actors. */
     void FetchRobotsFromBackend();
+
+    /** Fetch active (non-delivered) packages from warehouse API and spawn visuals for any missed. */
+    void FetchActivePackages();
+
+    /** Set of package IDs already processed (prevents duplicate dispatch). */
+    TSet<int64> ProcessedPackageIds;
+
+    /** Timer for package polling when STOMP is not available. */
+    float PackagePollTimer = 0.0f;
+
+    /** How often to poll for new packages via HTTP when STOMP is down (seconds). */
+    float PackagePollInterval = 3.0f;
 
     /**
      * Request a route from the backend route-planning API and instruct the robot

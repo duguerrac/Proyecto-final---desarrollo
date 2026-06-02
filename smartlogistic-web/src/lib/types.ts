@@ -36,26 +36,30 @@ export interface RobotTelemetry {
 }
 
 // ==================== PACKAGE ====================
-export type PackageStatus = 'RECEIVED' | 'STORED' | 'PICKED' | 'DISPATCHED';
+export type PackageStatus = 'RECEIVED' | 'IN_TRANSIT' | 'DELIVERED' | 'STORED' | 'PICKED' | 'DISPATCHED';
 
 export interface Package {
   id: string;
-  trackingCode: string;
-  productName: string;
+  sku: string;
   quantity: number;
-  weight: number;
   status: PackageStatus;
-  spotId: string | null;
-  spotLabel: string | null;
+  receptionSpotCode: string;
+  targetSpotCode: string;
+  robotId: string | null;
   createdAt: string;
-  storedAt: string | null;
+  // Legacy fields (may not be returned by all endpoints)
+  trackingCode?: string;
+  productName?: string;
+  weight?: number;
+  spotId?: string | null;
+  spotLabel?: string | null;
+  storedAt?: string | null;
 }
 
 export interface ReceivePackageRequest {
-  trackingCode: string;
-  productName: string;
+  sku: string;
   quantity: number;
-  weight: number;
+  receptionSpotCode?: string;
 }
 
 // ==================== ORDER ====================

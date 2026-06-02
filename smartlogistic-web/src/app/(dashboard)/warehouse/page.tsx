@@ -2,10 +2,11 @@
 
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { api } from '@/lib/api';
-import { WarehouseLayout, LayoutCell, CellType, Robot } from '@/lib/types';
+import { WarehouseLayout, LayoutCell, CellType, Robot, Package } from '@/lib/types';
 
 // SSE connects directly to nginx gateway (same as API)
 const SSE_URL = process.env.NEXT_PUBLIC_SSE_URL || 'http://localhost:8086/api/robots/telemetry/stream';
+const PACKAGE_SSE_URL = process.env.NEXT_PUBLIC_PACKAGE_SSE_URL || 'http://localhost:8086/api/packages/stream';
 
 const CELL_COLORS: Record<CellType, string> = {
   EMPTY: 'bg-[#334155]/30 border-[#475569]/30',
@@ -51,16 +52,43 @@ const MODE_COLORS: Record<string, string> = {
   ERROR: 'bg-red-500',
 };
 
-/** Parse "RP-R00-C05" → { row: 0, col: 5 } */
+const PACKAGE_STATUS_COLORS: Record<string, string> = {
+  RECEIVED: 'bg-orange-500',
+  IN_TRANSIT: 'bg-blue-500',
+  DELIVERED: 'bg-green-500',
+  DISPATCHED: 'bg-purple-500',
+};
+
+const PACKAGE_STATUS_LABELS: Record<string, string> = {
+  RECEIVED: 'At Reception',
+  IN_TRANSIT: 'In Transit',
+  DELIVERED: 'Delivered',
+  DISPATCHED: 'Dispatched',
+};
+
+/** Parse spot code like "RP-R00-C05" → { row: 0, col: 5 } */
 function parseLocation(loc: string): { row: number; col: number } | null {
   const match = loc?.match(/R(\d+)-C(\d+)/);
   if (!match) return null;
   return { row: parseInt(match[1], 10), col: parseInt(match[2], 10) };
 }
 
+/** Parse spot code to grid position (handles "RP-R00-C05" or "RP_0_5" formats) */
+function parseSpotToGrid(spotCode: string): { row: number; col: number } | null {
+  // Try "RP-R00-C05" format
+  const match1 = spotCode?.match(/R(\d+)-C(\d+)/);
+  if (match1) return { row: parseInt(match1[1], 10), col: parseInt(match1[2], 10) };
+  // Try "RP_0_5" format
+  const match2 = spotCode?.match(/RP_(\d+)_(\d+)/);
+  if (match2) return { row: parseInt(match2[1], 10), col: parseInt(match2[2], 10) };
+  return null;
+}
+
 export default function WarehousePage() {
   const [layout, setLayout] = useState<WarehouseLayout | null>(null);
   const [robots, setRobots] = useState<Map<string, Robot>>(new Map());
+  const [packages, setPackages] = useState<Package[]>([]);
+  const [spotGridMap, setSpotGridMap] = useState<Map<string, { row: number; col: number }>>(new Map());
   const [loading, setLoading] = useState(true);
   const [selectedCell, setSelectedCell] = useState<LayoutCell | null>(null);
   const [selectedRobot, setSelectedRobot] = useState<Robot | null>(null);
@@ -68,6 +96,8 @@ export default function WarehousePage() {
   const [loadingItems, setLoadingItems] = useState(false);
   const [sseStatus, setSseStatus] = useState<'connecting' | 'connected' | 'disconnected'>('disconnected');
   const eventSourceRef = useRef<EventSource | null>(null);
+  const packageEventSourceRef = useRef<EventSource | null>(null);
+  const packagePollRef = useRef<NodeJS.Timeout | null>(null);
 
   // Fetch shelf items when a SHELF cell is selected
   useEffect(() => {
@@ -86,19 +116,79 @@ export default function WarehousePage() {
   useEffect(() => {
     loadLayout();
     loadRobots();
+    loadPackages();
     connectSSE();
+
+    // Connect to package SSE stream for real-time updates
+    connectPackageSSE();
+
+    // Fallback: poll packages every 10 seconds (slower, SSE is primary)
+    packagePollRef.current = setInterval(loadPackages, 10000);
+
     return () => {
       if (eventSourceRef.current) {
         eventSourceRef.current.close();
       }
+      if (packageEventSourceRef.current) {
+        packageEventSourceRef.current.close();
+      }
+      if (packagePollRef.current) {
+        clearInterval(packagePollRef.current);
+      }
+    };
+  }, []);
+
+  const connectPackageSSE = useCallback(() => {
+    if (packageEventSourceRef.current) {
+      packageEventSourceRef.current.close();
+    }
+
+    const es = new EventSource(PACKAGE_SSE_URL);
+    packageEventSourceRef.current = es;
+
+    es.addEventListener('package-received', (event) => {
+      try {
+        const pkg = JSON.parse(event.data);
+        setPackages((prev) => {
+          const exists = prev.find((p) => p.id === pkg.id);
+          if (exists) return prev.map((p) => (p.id === pkg.id ? pkg : p));
+          return [...prev, pkg];
+        });
+      } catch { /* ignore */ }
+    });
+
+    es.addEventListener('package-updated', (event) => {
+      try {
+        const pkg = JSON.parse(event.data);
+        setPackages((prev) => prev.map((p) => (p.id === pkg.id ? pkg : p)));
+      } catch { /* ignore */ }
+    });
+
+    es.onerror = () => {
+      es.close();
+      // Retry connection after 5 seconds
+      setTimeout(connectPackageSSE, 5000);
     };
   }, []);
 
   const loadLayout = async () => {
     try {
-      const layoutData = await api.getWarehouseLayout();
+      const [layoutData, spotsData] = await Promise.all([
+        api.getWarehouseLayout(),
+        api.getSpots().catch(() => [])
+      ]);
       if (layoutData) {
         setLayout(layoutData);
+        // Build spot code → grid position mapping using spot coordinates
+        if (Array.isArray(spotsData) && layoutData.cellSize > 0) {
+          const map = new Map<string, { row: number; col: number }>();
+          spotsData.forEach((spot: { code: string; x: number; y: number }) => {
+            const col = Math.round(spot.x / layoutData.cellSize);
+            const row = Math.round(spot.y / layoutData.cellSize);
+            map.set(spot.code, { row, col });
+          });
+          setSpotGridMap(map);
+        }
       }
     } catch {
       // silently handle
@@ -113,6 +203,15 @@ export default function WarehousePage() {
       const map = new Map<string, Robot>();
       robotsData.forEach((r: Robot) => map.set(r.robotId, r));
       setRobots(map);
+    } catch {
+      // silently handle
+    }
+  };
+
+  const loadPackages = async () => {
+    try {
+      const packagesData = await api.getPackages();
+      setPackages(packagesData);
     } catch {
       // silently handle
     }
@@ -133,7 +232,6 @@ export default function WarehousePage() {
     es.addEventListener('telemetry', (event) => {
       try {
         const data = JSON.parse(event.data);
-        // Data is { robot: { id, name, batteryLevel, available, currentLocation, operationalMode } }
         const robotData = data.robot || data;
         if (robotData.id || robotData.robotId) {
           const robot: Robot = {
@@ -155,11 +253,11 @@ export default function WarehousePage() {
       }
     });
 
-    // Also handle default message events (in case backend changes)
+    // Also handle default message events
     es.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data);
-        if (data.status === 'connected') return; // skip initial connection event
+        if (data.status === 'connected') return;
         const robotData = data.robot || data;
         if (robotData.id || robotData.robotId) {
           const robot: Robot = {
@@ -213,6 +311,33 @@ export default function WarehousePage() {
     return result;
   };
 
+  /** Resolve any spot code to grid position */
+  const resolveSpotPosition = (spotCode: string): { row: number; col: number } | null => {
+    // Try parsing RP-R00-C00 format first
+    const parsed = parseSpotToGrid(spotCode);
+    if (parsed) return parsed;
+    // Try the spotGridMap (for SP- codes from /api/spots)
+    return spotGridMap.get(spotCode) || null;
+  };
+
+  /** Get active (non-delivered) packages at a specific cell based on receptionSpotCode or targetSpotCode */
+  const getPackagesOnCell = (row: number, col: number): Package[] => {
+    return packages.filter((pkg) => {
+      if (pkg.status === 'DELIVERED') return false;
+      // If RECEIVED, show at reception spot
+      if (pkg.status === 'RECEIVED') {
+        const pos = resolveSpotPosition(pkg.receptionSpotCode);
+        return pos !== null && pos.row === row && pos.col === col;
+      }
+      // If IN_TRANSIT or DISPATCHED, show at target spot
+      if (pkg.status === 'IN_TRANSIT' || pkg.status === 'DISPATCHED') {
+        const pos = resolveSpotPosition(pkg.targetSpotCode);
+        return pos !== null && pos.row === row && pos.col === col;
+      }
+      return false;
+    });
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -229,7 +354,7 @@ export default function WarehousePage() {
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-white">Warehouse Map</h1>
-          <p className="text-[#94a3b8] text-sm mt-1">Real-time warehouse top view with robot positions</p>
+          <p className="text-[#94a3b8] text-sm mt-1">Real-time warehouse top view with robot positions & packages</p>
         </div>
         <div className="flex items-center gap-4">
           <div className="flex items-center gap-2 text-sm">
@@ -241,7 +366,7 @@ export default function WarehousePage() {
               {sseStatus === 'connected' ? 'Live' : sseStatus === 'connecting' ? 'Connecting...' : 'Disconnected'}
             </span>
           </div>
-          <button onClick={() => { loadRobots(); connectSSE(); }} className="btn-secondary text-sm">
+          <button onClick={() => { loadRobots(); loadPackages(); connectSSE(); }} className="btn-secondary text-sm">
             Refresh
           </button>
         </div>
@@ -261,6 +386,10 @@ export default function WarehousePage() {
           <div className="flex items-center gap-2 ml-4">
             <div className="w-5 h-5 rounded-full bg-primary-500 flex items-center justify-center text-white text-[8px] font-bold">R</div>
             <span className="text-[#94a3b8]">Robot</span>
+          </div>
+          <div className="flex items-center gap-2 ml-2">
+            <div className="w-5 h-5 rounded-full bg-orange-500 flex items-center justify-center text-white text-[8px] font-bold">P</div>
+            <span className="text-[#94a3b8]">Package</span>
           </div>
         </div>
       </div>
@@ -297,6 +426,7 @@ export default function WarehousePage() {
                   {row.map((cell, c) => {
                     const cellType = cell?.cellType || 'EMPTY';
                     const robotsHere = getRobotsOnCell(r, c);
+                    const packagesHere = getPackagesOnCell(r, c);
                     const isSelected = selectedCell?.rowIndex === r && selectedCell?.colIndex === c;
                     return (
                       <div
@@ -307,10 +437,29 @@ export default function WarehousePage() {
                             ? `${CELL_COLORS[cellType as CellType] || CELL_COLORS.EMPTY} ${isSelected ? 'ring-2 ring-primary-400 z-10' : 'hover:brightness-125'}`
                             : 'bg-transparent border-transparent'
                         }`}
-                        title={cell ? `${CELL_LABELS[cellType as CellType]} (${r},${c})` : ''}
+                        title={cell ? `${CELL_LABELS[cellType as CellType]} (${r},${c})${packagesHere.length > 0 ? ` — ${packagesHere.length} package(s)` : ''}` : ''}
                       >
                         {cell && (
                           <span className="text-[10px] leading-none">{CELL_ICONS[cellType as CellType]}</span>
+                        )}
+                        {/* Package markers (bottom-left) */}
+                        {packagesHere.length > 0 && (
+                          <div className="absolute -bottom-1 -left-1 flex gap-0.5 z-10">
+                            {packagesHere.slice(0, 3).map((pkg, i) => (
+                              <div
+                                key={pkg.id}
+                                className={`w-4 h-4 rounded-sm ${PACKAGE_STATUS_COLORS[pkg.status] || 'bg-orange-500'} flex items-center justify-center text-white text-[7px] font-bold border border-[#1e293b] shadow-lg`}
+                                title={`Pkg #${pkg.id} — ${pkg.sku} (${pkg.status})`}
+                              >
+                                {pkg.quantity}
+                              </div>
+                            ))}
+                            {packagesHere.length > 3 && (
+                              <div className="w-4 h-4 rounded-sm bg-gray-500 flex items-center justify-center text-white text-[7px] font-bold border border-[#1e293b]">
+                                +{packagesHere.length - 3}
+                              </div>
+                            )}
+                          </div>
                         )}
                         {/* Robot markers */}
                         {robotsHere.length > 0 && (
@@ -489,6 +638,53 @@ export default function WarehousePage() {
                   </div>
                 </div>
 
+                {/* Packages at this cell */}
+                {getPackagesOnCell(selectedCell.rowIndex, selectedCell.colIndex).length > 0 && (
+                  <div className="mt-3 pt-3 border-t border-[#1e293b]">
+                    <h4 className="text-[#94a3b8] text-xs font-semibold uppercase tracking-wider mb-2">
+                      📦 Packages ({getPackagesOnCell(selectedCell.rowIndex, selectedCell.colIndex).length})
+                    </h4>
+                    <div className="space-y-2">
+                      {getPackagesOnCell(selectedCell.rowIndex, selectedCell.colIndex).map((pkg) => (
+                        <div key={pkg.id} className="bg-[#0f172a] rounded-lg p-2.5 space-y-1.5">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                              <div className={`w-3 h-3 rounded-sm ${PACKAGE_STATUS_COLORS[pkg.status] || 'bg-orange-500'}`} />
+                              <span className="text-white text-sm font-medium">#{pkg.id}</span>
+                            </div>
+                            <span className={`text-xs px-2 py-0.5 rounded-full ${
+                              pkg.status === 'RECEIVED' ? 'bg-orange-500/20 text-orange-300' :
+                              pkg.status === 'IN_TRANSIT' ? 'bg-blue-500/20 text-blue-300' :
+                              pkg.status === 'DISPATCHED' ? 'bg-purple-500/20 text-purple-300' :
+                              'bg-gray-500/20 text-gray-300'
+                            }`}>
+                              {PACKAGE_STATUS_LABELS[pkg.status] || pkg.status}
+                            </span>
+                          </div>
+                          <div className="flex items-center justify-between text-xs">
+                            <span className="text-[#94a3b8]">SKU</span>
+                            <span className="text-white font-mono">{pkg.sku}</span>
+                          </div>
+                          <div className="flex items-center justify-between text-xs">
+                            <span className="text-[#94a3b8]">Quantity</span>
+                            <span className="text-white font-bold">×{pkg.quantity}</span>
+                          </div>
+                          <div className="flex items-center justify-between text-xs">
+                            <span className="text-[#94a3b8]">Target</span>
+                            <span className="text-white font-mono">{pkg.targetSpotCode}</span>
+                          </div>
+                          {pkg.robotId && (
+                            <div className="flex items-center justify-between text-xs">
+                              <span className="text-[#94a3b8]">Robot</span>
+                              <span className="text-primary-300 font-mono">{pkg.robotId}</span>
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
                 {/* Shelf Items Section */}
                 {selectedCell.cellType === 'SHELF' && (
                   <div className="mt-3 pt-3 border-t border-[#1e293b]">
@@ -580,6 +776,54 @@ export default function WarehousePage() {
               )}
             </div>
           </div>
+
+          {/* Package summary */}
+          {packages.length > 0 && (
+            <div className="card">
+              <h3 className="text-white font-semibold mb-3">
+                Packages ({packages.length})
+              </h3>
+              <div className="space-y-1.5">
+                {packages
+                  .filter(p => p.status !== 'DELIVERED')
+                  .slice(0, 10)
+                  .map((pkg) => (
+                  <div
+                    key={pkg.id}
+                    className="flex items-center gap-2 p-2 rounded-lg bg-[#0f172a] hover:bg-[#0f172a]/80 cursor-pointer"
+                    onClick={() => {
+                      // Try to find the cell for this package and select it
+                      const pos = pkg.status === 'RECEIVED'
+                        ? resolveSpotPosition(pkg.receptionSpotCode)
+                        : resolveSpotPosition(pkg.targetSpotCode);
+                      if (pos && layout) {
+                        const cell = layout.cells?.find(c => c.rowIndex === pos.row && c.colIndex === pos.col);
+                        if (cell) { setSelectedCell(cell); setSelectedRobot(null); }
+                      }
+                    }}
+                  >
+                    <div className={`w-3 h-3 rounded-sm ${PACKAGE_STATUS_COLORS[pkg.status] || 'bg-orange-500'}`} />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-white text-sm font-medium">#{pkg.id} — {pkg.sku}</p>
+                      <p className="text-[#64748b] text-xs">
+                        ×{pkg.quantity} → {pkg.targetSpotCode}
+                      </p>
+                    </div>
+                    <span className={`text-xs px-1.5 py-0.5 rounded ${
+                      pkg.status === 'RECEIVED' ? 'bg-orange-500/20 text-orange-300' :
+                      pkg.status === 'IN_TRANSIT' ? 'bg-blue-500/20 text-blue-300' :
+                      'bg-gray-500/20 text-gray-300'
+                    }`}>
+                      {PACKAGE_STATUS_LABELS[pkg.status] || pkg.status}
+                    </span>
+                  </div>
+                ))}
+                {packages.filter(p => p.status !== 'DELIVERED').length === 0 && (
+                  <p className="text-[#64748b] text-sm text-center py-2">All packages delivered ✓</p>
+                )}
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>

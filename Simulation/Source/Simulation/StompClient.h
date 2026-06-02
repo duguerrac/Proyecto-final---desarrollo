@@ -35,6 +35,9 @@ public:
     /** Subscribe to a RabbitMQ queue. Returns subscription ID. */
     FString Subscribe(const FString& QueueName, const FString& AckMode = TEXT("auto"));
 
+    /** Subscribe to a RabbitMQ exchange with a routing key (topic). Returns subscription ID. */
+    FString SubscribeToExchange(const FString& ExchangeName, const FString& RoutingKey, const FString& AckMode = TEXT("auto"));
+
     /** Unsubscribe a previous subscription by ID */
     void Unsubscribe(const FString& SubscriptionId);
 
@@ -52,11 +55,20 @@ private:
     /** Session established flag */
     bool bSessionConnected = false;
 
+    /** Connection in-progress flag (prevents double-connect) */
+    bool bIsConnecting = false;
+
+    /** Timestamp when connection attempt started (for timeout) */
+    float ConnectStartTime = 0.0f;
+
     /** Auto-incrementing subscription counter */
     int32 SubIdCounter = 0;
 
     /** Map subscription ID → destination for routing messages */
     TMap<FString, FString> Subscriptions;
+
+    /** Saved subscription destinations for auto-resubscribe after reconnect */
+    TArray<FString> SavedSubscriptions;
 
     /** Stored login for STOMP CONNECT (sent after WS open) */
     FString LastLogin;

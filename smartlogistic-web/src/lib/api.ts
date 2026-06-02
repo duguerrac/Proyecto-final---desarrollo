@@ -76,7 +76,7 @@ class ApiClient {
   }
 
   async receivePackage(data: ReceivePackageRequest): Promise<Package> {
-    return this.request<Package>('/packages', {
+    return this.request<Package>('/packages/receive', {
       method: 'POST',
       body: JSON.stringify(data),
     });
@@ -114,6 +114,11 @@ class ApiClient {
   // Get items stored at a specific grid cell (row, col)
   async getSpotItemsByCell(row: number, col: number): Promise<{ itemId: number; name: string; sku: string; quantityAvailable: number }[]> {
     return this.request(`/spots/by-cell/${row}/${col}/items`);
+  }
+
+  // ==================== SPOTS ====================
+  async getSpots(): Promise<{ id: number; code: string; aisle: string; section: string; x: number; y: number; items: { productId: number; productName: string; sku: string; quantity: number }[] }[]> {
+    return this.request('/spots');
   }
 
   // ==================== ROBOTS ====================

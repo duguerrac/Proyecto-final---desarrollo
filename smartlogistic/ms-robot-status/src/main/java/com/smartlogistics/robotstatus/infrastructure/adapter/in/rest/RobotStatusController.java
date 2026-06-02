@@ -6,6 +6,7 @@ import com.smartlogistics.robotstatus.application.port.in.RegisterRobotUseCase;
 import com.smartlogistics.robotstatus.domain.exception.RobotNotFoundException;
 import com.smartlogistics.robotstatus.domain.model.Robot;
 import com.smartlogistics.robotstatus.infrastructure.adapter.out.sse.SseTelemetryAdapter;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
@@ -26,15 +27,18 @@ public class RobotStatusController {
     private final RegisterRobotUseCase registerRobot;
     private final DispatchRobotUseCase dispatchRobot;
     private final SseTelemetryAdapter sseTelemetryAdapter;
+    private final ObjectMapper objectMapper;
 
     public RobotStatusController(GetRobotStatusUseCase getRobotStatus,
                                  RegisterRobotUseCase registerRobot,
                                  DispatchRobotUseCase dispatchRobot,
-                                 SseTelemetryAdapter sseTelemetryAdapter) {
+                                 SseTelemetryAdapter sseTelemetryAdapter,
+                                 ObjectMapper objectMapper) {
         this.getRobotStatus = getRobotStatus;
         this.registerRobot = registerRobot;
         this.dispatchRobot = dispatchRobot;
         this.sseTelemetryAdapter = sseTelemetryAdapter;
+        this.objectMapper = objectMapper;
     }
 
     // ── Simulation → Backend: Register a new robot ──────────────────────
@@ -69,6 +73,24 @@ public class RobotStatusController {
                 request.operationalMode
         );
         Robot saved = registerRobot.register(robot); // save updates via cache
+
+        // Broadcast real-time SSE event to all connected clients
+        try {
+            String jsonPayload = objectMapper.writeValueAsString(
+                    java.util.Map.of("robot", java.util.Map.of(
+                            "id", saved.getId(),
+                            "name", saved.getName() != null ? saved.getName() : "",
+                            "batteryLevel", saved.getBatteryLevel(),
+                            "available", saved.isAvailable(),
+                            "currentLocation", saved.getCurrentLocation() != null ? saved.getCurrentLocation() : "",
+                            "operationalMode", saved.getOperationalMode() != null ? saved.getOperationalMode() : "IDLE"
+                    ))
+            );
+            sseTelemetryAdapter.broadcastTelemetry(saved.getId(), jsonPayload);
+        } catch (Exception e) {
+            log.warn("[SSE] Failed to broadcast telemetry update: {}", e.getMessage());
+        }
+
         return ResponseEntity.ok(RobotResponse.from(saved));
     }
 

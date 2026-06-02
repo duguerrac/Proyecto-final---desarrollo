@@ -18,10 +18,26 @@ UStompClient::UStompClient()
 
 void UStompClient::Connect(const FString& Url, const FString& Login, const FString& Passcode)
 {
+    if (bSessionConnected && WebSocket.IsValid())
+    {
+        UE_LOG(LogTemp, Warning, TEXT("[StompClient] Already connected — skipping"));
+        return;
+    }
+
+    if (bIsConnecting)
+    {
+        UE_LOG(LogTemp, Verbose, TEXT("[StompClient] Connection already in progress — skipping"));
+        return;
+    }
+
+    bIsConnecting = true;
+
+    // Clean up any stale/closed WebSocket from a previous session
     if (WebSocket.IsValid())
     {
-        UE_LOG(LogTemp, Warning, TEXT("[StompClient] Already connected or connecting"));
-        return;
+        UE_LOG(LogTemp, Log, TEXT("[StompClient] Cleaning up stale WebSocket for reconnection"));
+        WebSocket->Close();
+        WebSocket.Reset();
     }
 
     // Ensure WebSockets module is loaded
@@ -35,12 +51,8 @@ void UStompClient::Connect(const FString& Url, const FString& Login, const FStri
     LastPasscode = Passcode;
     LastUrl = Url;
 
-    TArray<FString> Protocols;
-    Protocols.Add(TEXT("v10.stomp"));
-    Protocols.Add(TEXT("v11.stomp"));
-    Protocols.Add(TEXT("v12.stomp"));
-
-    WebSocket = FWebSocketsModule::Get().CreateWebSocket(Url, Protocols);
+    // Use overload without subprotocols - RabbitMQ Web STOMP works without them
+    WebSocket = FWebSocketsModule::Get().CreateWebSocket(Url);
 
     WebSocket->OnConnected().AddLambda([this]() { OnWsConnected(); });
     WebSocket->OnConnectionError().AddLambda([this](const FString& Err) { OnWsConnectionError(Err); });
@@ -103,6 +115,35 @@ FString UStompClient::Subscribe(const FString& QueueName, const FString& AckMode
 
     Subscriptions.Add(SubId, Destination);
     UE_LOG(LogTemp, Log, TEXT("[StompClient] Subscribed to %s (id=%s)"), *Destination, *SubId);
+
+    return SubId;
+}
+
+FString UStompClient::SubscribeToExchange(const FString& ExchangeName, const FString& RoutingKey, const FString& AckMode)
+{
+    if (!bSessionConnected)
+    {
+        UE_LOG(LogTemp, Warning, TEXT("[StompClient] Cannot subscribe to exchange — not connected"));
+        return TEXT("");
+    }
+
+    FString SubId = FString::Printf(TEXT("sub-%d"), SubIdCounter++);
+
+    // RabbitMQ Web STOMP: destination = "/exchange/<exchange>/<routing-key>"
+    // This creates a server-generated exclusive queue bound to the exchange with the routing key
+    FString Destination = FString::Printf(TEXT("/exchange/%s/%s"), *ExchangeName, *RoutingKey);
+
+    TMap<FString, FString> Headers;
+    Headers.Add(TEXT("id"), SubId);
+    Headers.Add(TEXT("destination"), Destination);
+    Headers.Add(TEXT("ack"), AckMode);
+
+    SendFrame(TEXT("SUBSCRIBE"), Headers);
+
+    Subscriptions.Add(SubId, Destination);
+    SavedSubscriptions.AddUnique(Destination);
+    UE_LOG(LogTemp, Log, TEXT("[StompClient] Subscribed to exchange %s with key %s (dest=%s, id=%s)"),
+        *ExchangeName, *RoutingKey, *Destination, *SubId);
 
     return SubId;
 }
@@ -256,6 +297,7 @@ void UStompClient::HandleFrame(const FString& Command, const TMap<FString, FStri
     if (Command == TEXT("CONNECTED"))
     {
         bSessionConnected = true;
+        bIsConnecting = false;
 
         // Parse heart-beat from server
         const FString* Heartbeat = Headers.Find(TEXT("heart-beat"));
@@ -286,6 +328,20 @@ void UStompClient::HandleFrame(const FString& Command, const TMap<FString, FStri
                 SendHeartbeat();
             }, HeartbeatIntervalMs / 1000.0f, true);
         }
+
+        // Auto-resubscribe to saved subscriptions after reconnect
+        Subscriptions.Empty();
+        for (const FString& Dest : SavedSubscriptions)
+        {
+            FString SubId = FString::Printf(TEXT("sub-%d"), SubIdCounter++);
+            TMap<FString, FString> SubHeaders;
+            SubHeaders.Add(TEXT("id"), SubId);
+            SubHeaders.Add(TEXT("destination"), Dest);
+            SubHeaders.Add(TEXT("ack"), TEXT("auto"));
+            SendFrame(TEXT("SUBSCRIBE"), SubHeaders);
+            Subscriptions.Add(SubId, Dest);
+            UE_LOG(LogTemp, Log, TEXT("[StompClient] Auto-resubscribed to %s (id=%s)"), *Dest, *SubId);
+        }
     }
     else if (Command == TEXT("MESSAGE"))
     {
@@ -297,7 +353,7 @@ void UStompClient::HandleFrame(const FString& Command, const TMap<FString, FStri
         CleanDest.RemoveFromStart(TEXT("/queue/"));
         CleanDest.RemoveFromStart(TEXT("/exchange/"));
 
-        UE_LOG(LogTemp, Verbose, TEXT("[StompClient] MESSAGE on %s: %s"), *Destination, *Body.Left(200));
+        UE_LOG(LogTemp, Log, TEXT("[StompClient] MESSAGE on %s: %s"), *Destination, *Body.Left(200));
 
         OnMessageReceived.Broadcast(CleanDest, Body);
     }
@@ -344,6 +400,8 @@ void UStompClient::OnWsConnectionError(const FString& Error)
 {
     UE_LOG(LogTemp, Error, TEXT("[StompClient] WebSocket connection error: %s"), *Error);
     bSessionConnected = false;
+    bIsConnecting = false;
+    WebSocket.Reset();
 }
 
 void UStompClient::OnWsClosed(int32 StatusCode, const FString& Reason, bool bWasClean)
@@ -351,11 +409,16 @@ void UStompClient::OnWsClosed(int32 StatusCode, const FString& Reason, bool bWas
     UE_LOG(LogTemp, Log, TEXT("[StompClient] WebSocket closed: %d (%s) clean=%s"),
         StatusCode, *Reason, bWasClean ? TEXT("yes") : TEXT("no"));
     bSessionConnected = false;
+    bIsConnecting = false;
 
     if (GEngine && GEngine->GetWorld())
     {
         GEngine->GetWorld()->GetTimerManager().ClearTimer(HeartbeatTimerHandle);
     }
+
+    // Reset the WebSocket pointer so Connect() can create a fresh one
+    WebSocket.Reset();
+    UE_LOG(LogTemp, Log, TEXT("[StompClient] WebSocket pointer reset — ready for reconnection"));
 }
 
 void UStompClient::OnWsMessage(const FString& Message)

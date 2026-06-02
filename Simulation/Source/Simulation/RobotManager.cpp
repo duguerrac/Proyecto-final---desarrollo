@@ -4,6 +4,7 @@
 #include "WarehouseRobot.h"
 #include "WarehouseEnvironment.h"
 #include "Engine/World.h"
+#include "Engine/Engine.h"
 #include "Kismet/GameplayStatics.h"
 #include "Serialization/JsonSerializer.h"
 #include "Dom/JsonObject.h"
@@ -27,6 +28,15 @@ void ARobotManager::BeginPlay()
     UE_LOG(LogTemp, Log, TEXT("[RobotManager] Starting SmartLogistics simulation..."));
     UE_LOG(LogTemp, Log, TEXT("[RobotManager] Robot API: %s | Warehouse API: %s | MaxRobots: %d"),
         *RobotApiUrl, *WarehouseApiUrl, MaxRobots);
+
+    // Show connection info on screen for debugging
+    if (GEngine)
+    {
+        FString ConnInfo = FString::Printf(
+            TEXT("🔗 SmartLogistics Simulation\n  Robot API: %s\n  Warehouse API: %s\n  STOMP: %s\n  MaxRobots: %d"),
+            *RobotApiUrl, *WarehouseApiUrl, *RabbitStompUrl, MaxRobots);
+        GEngine->AddOnScreenDebugMessage(-1, 15.0f, FColor::White, *ConnInfo);
+    }
 
     // Auto-find WarehouseEnvironment in the level if not manually set
     if (!WarehouseEnv)
@@ -52,6 +62,8 @@ void ARobotManager::BeginPlay()
     GetWorldTimerManager().SetTimer(RobotFetchTimerHandle, [this]()
     {
         FetchRobotsFromBackend();
+        // Also fetch active packages that may have arrived before STOMP connected
+        FetchActivePackages();
     }, 6.0f, false);
 
     // Wait for WarehouseEnvironment to finish its own layout fetch (it does this in BeginPlay),
@@ -115,6 +127,46 @@ void ARobotManager::Tick(float DeltaTime)
     }
 
     bIsBackendConnected = HttpClient && HttpClient->IsConnected();
+
+    // Auto-reconnect STOMP if it drops (StompClient auto-resubscribes on CONNECTED)
+    StompReconnectTimer += DeltaTime;
+    if (StompClient && !StompClient->IsConnected() && StompReconnectTimer >= 30.0f)
+    {
+        StompReconnectTimer = 0.0f;
+        UE_LOG(LogTemp, Warning, TEXT("[RobotManager] STOMP disconnected — attempting reconnect to %s"), *RabbitStompUrl);
+        if (GEngine)
+        {
+            GEngine->AddOnScreenDebugMessage(-1, 5.0f, FColor::Orange,
+                TEXT("⚠ STOMP disconnected — reconnecting..."));
+        }
+        StompClient->Connect(RabbitStompUrl, TEXT("guest"), TEXT("guest"));
+    }
+
+    // HTTP polling fallback for packages when STOMP is not connected
+    bool bStompConnected = StompClient && StompClient->IsConnected();
+    if (!bStompConnected && bIsBackendConnected)
+    {
+        PackagePollTimer += DeltaTime;
+        if (PackagePollTimer >= PackagePollInterval)
+        {
+            PackagePollTimer = 0.0f;
+            FetchActivePackages();
+        }
+    }
+
+    // Show connection status on screen every 5 seconds
+    StatusDisplayTimer += DeltaTime;
+    if (StatusDisplayTimer >= 5.0f && GEngine)
+    {
+        StatusDisplayTimer = 0.0f;
+        FString StatusMsg = FString::Printf(
+            TEXT("🔗 HTTP: %s | STOMP: %s | Robots: %d | Events: %d"),
+            bIsBackendConnected ? TEXT("✅ Connected") : TEXT("❌ Disconnected"),
+            (StompClient && StompClient->IsConnected()) ? TEXT("✅ Connected") : TEXT("❌ Disconnected"),
+            RobotActors.Num(),
+            TotalEventsReceived);
+        GEngine->AddOnScreenDebugMessage(1, 4.5f, FColor::White, *StatusMsg);
+    }
 }
 
 void ARobotManager::ConnectToBackend()
@@ -151,16 +203,19 @@ void ARobotManager::ConnectToBackend()
             StompClient->OnMessageReceived.AddDynamic(this, &ARobotManager::HandleStompMessage);
             StompClient->Connect(RabbitStompUrl, TEXT("guest"), TEXT("guest"));
 
-            // Subscribe to relevant queues after a short delay (wait for STOMP CONNECTED)
+            // Subscribe to relevant exchanges via STOMP after a short delay (wait for STOMP CONNECTED)
             FTimerHandle StompSubTimer;
             GetWorldTimerManager().SetTimer(StompSubTimer, [this]()
             {
                 if (StompClient && StompClient->IsConnected())
                 {
-                    StompClient->Subscribe(TEXT("robot.command"), TEXT("auto"));
-                    StompClient->Subscribe(TEXT("order.dispatch"), TEXT("auto"));
-                    StompClient->Subscribe(TEXT("package.dispatch"), TEXT("auto"));
-                    UE_LOG(LogTemp, Log, TEXT("[RobotManager] Subscribed to STOMP queues"));
+                    // Subscribe to logistics.exchange with the correct routing keys
+                    // This creates server-generated exclusive queues so UE5 gets its own copy
+                    // (won't compete with Java consumers on the durable queues)
+                    StompClient->SubscribeToExchange(TEXT("logistics.exchange"), TEXT("robot.command"), TEXT("auto"));
+                    StompClient->SubscribeToExchange(TEXT("logistics.exchange"), TEXT("order.dispatched"), TEXT("auto"));
+                    StompClient->SubscribeToExchange(TEXT("logistics.exchange"), TEXT("package.dispatched"), TEXT("auto"));
+                    UE_LOG(LogTemp, Log, TEXT("[RobotManager] Subscribed to STOMP exchanges (logistics.exchange)"));
                 }
                 else
                 {
@@ -616,12 +671,33 @@ void ARobotManager::HandleMissionCommand(const FString& InRobotId, int64 InPacka
 void ARobotManager::HandlePackageReceived(int64 PackageId, const FString& Sku, int32 Quantity,
     const FString& ReceptionSpotCode, const FString& TargetSpotCode)
 {
+    // Deduplicate: skip if we already processed this package
+    if (ProcessedPackageIds.Contains(PackageId))
+    {
+        UE_LOG(LogTemp, Verbose, TEXT("[RobotManager] Package #%lld already processed — skipping"), PackageId);
+        return;
+    }
+    ProcessedPackageIds.Add(PackageId);
+
     UE_LOG(LogTemp, Log, TEXT("[RobotManager] Package received: pkg=%lld sku=%s qty=%d at reception=%s -> target=%s"),
         PackageId, *Sku, Quantity, *ReceptionSpotCode, *TargetSpotCode);
+
+    // On-screen debug message so user can see package arrival in viewport
+    if (GEngine)
+    {
+        FString DebugMsg = FString::Printf(TEXT("📦 Package #%lld arrived! SKU=%s x%d\n  At: %s → %s"),
+            PackageId, *Sku, Quantity, *ReceptionSpotCode, *TargetSpotCode);
+        GEngine->AddOnScreenDebugMessage(-1, 8.0f, FColor::Yellow, *DebugMsg);
+    }
 
     if (!WarehouseEnv)
     {
         UE_LOG(LogTemp, Warning, TEXT("[RobotManager] No WarehouseEnv - cannot spawn package visual"));
+        if (GEngine)
+        {
+            GEngine->AddOnScreenDebugMessage(-1, 5.0f, FColor::Red,
+                TEXT("[ERROR] No WarehouseEnv - cannot show package!"));
+        }
         return;
     }
 
@@ -674,6 +750,13 @@ void ARobotManager::HandlePackageReceived(int64 PackageId, const FString& Sku, i
     UE_LOG(LogTemp, Log, TEXT("[RobotManager] Auto-dispatching robot '%s' for package %lld (dist=%.0f)"),
         *BestRobot->RobotId, PackageId, BestDist);
 
+    if (GEngine)
+    {
+        FString DispatchMsg = FString::Printf(TEXT("🤖 Robot '%s' dispatched → pick up pkg #%lld\n  Reception: %s → Target: %s"),
+            *BestRobot->RobotId, PackageId, *ReceptionSpotCode, *TargetSpotCode);
+        GEngine->AddOnScreenDebugMessage(-1, 6.0f, FColor::Cyan, *DispatchMsg);
+    }
+
     FVector ReceptionPos = FVector::ZeroVector;
     WarehouseEnv->GetSpotPosition(ReceptionSpotCode, ReceptionPos);
 
@@ -720,6 +803,13 @@ void ARobotManager::HandleRobotArrival(AWarehouseRobot* Robot, const FString& Mi
     // Handle multi-phase missions
     if (MissionType == TEXT("STOCK_IN") && Mission.MissionPhase == TEXT("GO_TO_RECEPTION"))
     {
+        if (GEngine)
+        {
+            FString PickMsg = FString::Printf(TEXT("📦 Robot '%s' picked up pkg #%lld at %s → heading to %s"),
+                *Robot->RobotId, Mission.PackageId, *Mission.ReceptionSpotCode, *Mission.TargetSpotCode);
+            GEngine->AddOnScreenDebugMessage(-1, 6.0f, FColor::Green, *PickMsg);
+        }
+
         Robot->PickUpItem();
 
         if (WarehouseEnv)
@@ -908,6 +998,78 @@ void ARobotManager::FetchRobotsFromBackend()
 
         UE_LOG(LogTemp, Log, TEXT("[RobotManager] Synced %d robots from backend (total actors: %d)"),
             SpawnedCount, RobotActors.Num());
+    });
+
+    Request->ProcessRequest();
+}
+
+void ARobotManager::FetchActivePackages()
+{
+    if (WarehouseApiUrl.IsEmpty()) return;
+
+    // Fetch packages that are still in RECEIVED status (not yet delivered)
+    FString Url = WarehouseApiUrl + TEXT("/api/packages");
+    UE_LOG(LogTemp, Verbose, TEXT("[RobotManager] Fetching active packages from: %s"), *Url);
+
+    TSharedRef<IHttpRequest, ESPMode::ThreadSafe> Request = FHttpModule::Get().CreateRequest();
+    Request->SetURL(Url);
+    Request->SetVerb(TEXT("GET"));
+    Request->SetHeader(TEXT("Content-Type"), TEXT("application/json"));
+    Request->SetTimeout(10.0f);
+
+    Request->OnProcessRequestComplete().BindLambda([this](FHttpRequestPtr Req, FHttpResponsePtr Resp, bool bSuccess)
+    {
+        if (!bSuccess || !Resp.IsValid())
+        {
+            UE_LOG(LogTemp, Warning, TEXT("[RobotManager] Active packages fetch failed"));
+            return;
+        }
+
+        int32 Code = Resp->GetResponseCode();
+        FString Body = Resp->GetContentAsString();
+
+        if (Code != 200)
+        {
+            UE_LOG(LogTemp, Warning, TEXT("[RobotManager] Active packages fetch returned HTTP %d"), Code);
+            return;
+        }
+
+        TArray<TSharedPtr<FJsonValue>> JsonArray;
+        TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(Body);
+
+        if (!FJsonSerializer::Deserialize(Reader, JsonArray))
+        {
+            UE_LOG(LogTemp, Warning, TEXT("[RobotManager] Failed to parse packages JSON"));
+            return;
+        }
+
+        int32 VisualCount = 0;
+        for (const TSharedPtr<FJsonValue>& Item : JsonArray)
+        {
+            TSharedPtr<FJsonObject> Obj = Item->AsObject();
+            if (!Obj.IsValid()) continue;
+
+            FString Status = Obj->HasField(TEXT("status")) ? Obj->GetStringField(TEXT("status")) : TEXT("");
+            // Only show visuals for packages still at reception (not yet picked up)
+            if (Status != TEXT("RECEIVED") && Status != TEXT("PENDING")) continue;
+
+            int64 PackageId = static_cast<int64>(Obj->GetNumberField(TEXT("id")));
+            FString Sku = Obj->HasField(TEXT("sku")) ? Obj->GetStringField(TEXT("sku")) : TEXT("PKG");
+            int32 Quantity = Obj->HasField(TEXT("quantity")) ? Obj->GetIntegerField(TEXT("quantity")) : 1;
+            FString ReceptionSpot = Obj->HasField(TEXT("receptionSpotCode"))
+                ? Obj->GetStringField(TEXT("receptionSpotCode")) : TEXT("");
+            FString TargetSpot = Obj->HasField(TEXT("targetSpotCode"))
+                ? Obj->GetStringField(TEXT("targetSpotCode")) : TEXT("");
+
+            if (!ReceptionSpot.IsEmpty())
+            {
+                // Trigger full package handling (visual + auto-dispatch) via dedup-safe method
+                HandlePackageReceived(PackageId, Sku, Quantity, ReceptionSpot, TargetSpot);
+                VisualCount++;
+            }
+        }
+
+        UE_LOG(LogTemp, Log, TEXT("[RobotManager] Fetched active packages: %d new packages processed"), VisualCount);
     });
 
     Request->ProcessRequest();

@@ -1072,15 +1072,15 @@ UStaticMeshComponent* AWarehouseEnvironment::SpawnItemVisualAtSpot(const FString
         return nullptr;
     }
 
-    // Stack box on top of existing items
+    // Stack box on top of existing items - make it tall enough to be visible above robots
     int32 StackIndex = PackageVisuals.Num();
-    float BoxHeight = 50.0f;
-    FVector BoxLocation = SpotPos + FVector(0, 0, BoxHeight + StackIndex * (BoxHeight * 2));
+    float BoxHeight = 120.0f; // Higher than robots (which are ~60cm)
+    FVector BoxLocation = SpotPos + FVector(0, 0, BoxHeight + StackIndex * 100.0f);
 
     FString BoxName = FString::Printf(TEXT("PkgBox_%lld_%s"), PackageId, *Sku);
-    FLinearColor BoxColor = FLinearColor(0.85f, 0.7f, 0.1f); // Gold/amber for packages
+    FLinearColor BoxColor = FLinearColor(0.1f, 0.9f, 0.3f); // Bright green for packages (highly visible)
 
-    UStaticMeshComponent* BoxComp = AddBox(*BoxName, BoxLocation, FVector(0.3f, 0.3f, 0.3f), BoxColor);
+    UStaticMeshComponent* BoxComp = AddBox(*BoxName, BoxLocation, FVector(0.5f, 0.5f, 0.5f), BoxColor);
 
     if (BoxComp)
     {

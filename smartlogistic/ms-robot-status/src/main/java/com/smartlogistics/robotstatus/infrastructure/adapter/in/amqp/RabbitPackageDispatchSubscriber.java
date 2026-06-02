@@ -65,16 +65,10 @@ public class RabbitPackageDispatchSubscriber {
         log.info("📦 Package #{} received (SKU={}) — reception={}, target={}, item={}, qty={}",
                 packageId, sku, receptionSpot, targetSpot, itemId, quantity);
 
-        String robotId = dispatchRobotUseCase.findAvailableRobot();
-
-        if (robotId != null) {
-            log.info("🤖 Dispatching robot {} for package #{} (STOCK_IN → {})",
-                    robotId, packageId, targetSpot);
-            robotDispatchPort.sendStockInMission(robotId, packageId, sku,
-                    receptionSpot, targetSpot, itemId, quantity);
-        } else {
-            log.warn("⚠️ No available robot for package #{} — package will wait", packageId);
-        }
+        // UE5 simulation handles robot dispatching directly (it owns the physical robots).
+        // The Java service only tracks robot state — dispatch is delegated to UE5's auto-dispatch.
+        log.info("📦 Package #{} — delegating dispatch to UE5 simulation (visual + auto-dispatch via STOMP)",
+                packageId);
     }
 
     private void handleMissionCompleted(JsonNode event) {

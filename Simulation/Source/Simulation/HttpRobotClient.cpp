@@ -126,29 +126,58 @@ void UHttpRobotClient::PollForCommands()
 {
     if (!bIsPolling) return;
 
-    PollForPendingPackages();
+    // NOTE: Package reception is handled via STOMP (RabbitMQ) events, NOT HTTP polling.
+    // See RobotManager::HandleStompMessage() → package.dispatched
     PollForRobotCommands();
 }
 
 void UHttpRobotClient::PollForPendingPackages()
 {
-    if (WarehouseApiUrl.IsEmpty()) return;
+    if (WarehouseApiUrl.IsEmpty())
+    {
+        // Only log once to avoid spam
+        static bool bWarnedEmptyUrl = false;
+        if (!bWarnedEmptyUrl)
+        {
+            UE_LOG(LogTemp, Error, TEXT("[HttpRobotClient] WarehouseApiUrl is EMPTY - cannot poll for packages! Set WarehouseApiUrl on RobotManager."));
+            bWarnedEmptyUrl = true;
+        }
+        return;
+    }
 
     // Poll GET /api/packages/status/RECEIVED from warehouse-core
     FString Url = FString::Printf(TEXT("%s/api/packages/status/RECEIVED"), *WarehouseApiUrl);
 
-    MakeRequest(TEXT("GET"), Url, TEXT(""), [this](int32 Code, const FString& Body)
+    MakeRequest(TEXT("GET"), Url, TEXT(""), [this, Url](int32 Code, const FString& Body)
     {
         if (!bIsPolling) return;
-        if (Code != 200 || Body.IsEmpty()) return;
+        
+        if (Code != 200)
+        {
+            // Log connection issues at Warning level (Code=0 means connection refused)
+            UE_LOG(LogTemp, Warning, TEXT("[HttpRobotClient] Package poll FAILED (HTTP %d) from %s"), Code, *Url);
+            return;
+        }
+        if (Body.IsEmpty() || Body == TEXT("[]"))
+        {
+            UE_LOG(LogTemp, Verbose, TEXT("[HttpRobotClient] Package poll: no RECEIVED packages"));
+            return;
+        }
 
         // Parse JSON array of packages
         TArray<TSharedPtr<FJsonValue>> Packages;
         TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(Body);
-        if (!FJsonSerializer::Deserialize(Reader, Packages) || !Packages.Num())
+        if (!FJsonSerializer::Deserialize(Reader, Packages))
+        {
+            UE_LOG(LogTemp, Warning, TEXT("[HttpRobotClient] Failed to parse packages JSON: %s"), *Body.Left(200));
+            return;
+        }
+        if (!Packages.Num())
         {
             return;
         }
+        
+        UE_LOG(LogTemp, Log, TEXT("[HttpRobotClient] Found %d RECEIVED package(s)"), Packages.Num());
 
         for (const TSharedPtr<FJsonValue>& PkgVal : Packages)
         {
