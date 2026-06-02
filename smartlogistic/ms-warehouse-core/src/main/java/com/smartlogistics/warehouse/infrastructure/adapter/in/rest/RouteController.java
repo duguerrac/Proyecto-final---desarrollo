@@ -54,8 +54,9 @@ public class RouteController {
     @GetMapping("/from/{from}/to/{to}")
     public ResponseEntity<Map<String, Object>> routeForSimulation(
             @PathVariable String from,
-            @PathVariable String to) {
-        List<RootPointJpaEntity> route = routePlanningService.findRouteBetweenSpots(from, to);
+            @PathVariable String to,
+            @RequestParam(required = false) String robotId) {
+        List<RootPointJpaEntity> route = routePlanningService.findRouteBetweenSpots(from, to, robotId);
 
         if (route.isEmpty()) {
             return ResponseEntity.notFound().build();

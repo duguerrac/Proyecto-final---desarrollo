@@ -1236,10 +1236,10 @@ void ARobotManager::RequestRouteAndFollowWaypoints(AWarehouseRobot* Robot, const
         return;
     }
 
-    FString Url = FString::Printf(TEXT("%s/api/routes/from/%s/to/%s"),
-        *WarehouseApiUrl, *ResolvedFrom, *ToCode);
+    FString Url = FString::Printf(TEXT("%s/api/routes/from/%s/to/%s?robotId=%s"),
+        *WarehouseApiUrl, *ResolvedFrom, *ToCode, *Robot->RobotId);
 
-    UE_LOG(LogTemp, Log, TEXT("[RobotManager] Requesting route: %s"), *Url);
+    UE_LOG(LogTemp, Log, TEXT("[RobotManager] Requesting route (robot=%s): %s"), *Robot->RobotId, *Url);
 
     TSharedRef<IHttpRequest, ESPMode::ThreadSafe> Request = FHttpModule::Get().CreateRequest();
     Request->SetURL(Url);
@@ -1300,31 +1300,35 @@ void ARobotManager::RequestRouteAndFollowWaypoints(AWarehouseRobot* Robot, const
                 TSharedPtr<FJsonObject> WpObj = WpVal->AsObject();
                 if (!WpObj.IsValid()) continue;
 
-                float X = 0.f, Y = 0.f, Z = 0.f;
-                if (WpObj->HasField(TEXT("x"))) X = (float)WpObj->GetNumberField(TEXT("x"));
-                if (WpObj->HasField(TEXT("y"))) Y = (float)WpObj->GetNumberField(TEXT("y"));
-                if (WpObj->HasField(TEXT("z"))) Z = (float)WpObj->GetNumberField(TEXT("z"));
+                // Each waypoint has a "code" (e.g. "RP-R01-C03") and DB x,y coords.
+                // Use the code to resolve the correct UE5 world position via GetSpotPosition,
+                // which handles all coordinate transformations (mirroring, offsets) correctly.
+                FString WpCode = WpObj->HasField(TEXT("code")) ? WpObj->GetStringField(TEXT("code")) : TEXT("");
 
-                FVector RawPos(X, Y, Z);
-
-                // Apply navigation offset: convert raw waypoint to nearest cell,
-                // then use CellToNavigationPosition which offsets toward grid interior
-                // to prevent the robot from clipping through walls/shelves at cell edges
-                if (WarehouseEnv)
+                if (WarehouseEnv && !WpCode.IsEmpty())
                 {
-                    FString NearestCode = WarehouseEnv->FindNearestRootPointCode(RawPos);
-                    if (!NearestCode.IsEmpty())
+                    FVector NavPos;
+                    if (WarehouseEnv->GetSpotPosition(WpCode, NavPos))
                     {
-                        FVector OffsetPos;
-                        if (WarehouseEnv->GetSpotPosition(NearestCode, OffsetPos))
-                        {
-                            Waypoints.Add(OffsetPos);
-                            continue;
-                        }
+                        Waypoints.Add(NavPos);
+                        UE_LOG(LogTemp, Verbose, TEXT("[RobotManager] Waypoint code '%s' → world %s"),
+                            *WpCode, *NavPos.ToString());
+                    }
+                    else
+                    {
+                        UE_LOG(LogTemp, Warning, TEXT("[RobotManager] Waypoint code '%s' not resolved, skipping"), *WpCode);
                     }
                 }
-
-                Waypoints.Add(RawPos);
+                else
+                {
+                    // Fallback: use raw x,y if no code or no WarehouseEnv
+                    float X = 0.f, Y = 0.f, Z = 0.f;
+                    if (WpObj->HasField(TEXT("x"))) X = (float)WpObj->GetNumberField(TEXT("x"));
+                    if (WpObj->HasField(TEXT("y"))) Y = (float)WpObj->GetNumberField(TEXT("y"));
+                    if (WpObj->HasField(TEXT("z"))) Z = (float)WpObj->GetNumberField(TEXT("z"));
+                    Waypoints.Add(FVector(X, Y, Z));
+                    UE_LOG(LogTemp, Warning, TEXT("[RobotManager] Waypoint using raw coords (%.0f,%.0f,%.0f)"), X, Y, Z);
+                }
             }
         }
 
