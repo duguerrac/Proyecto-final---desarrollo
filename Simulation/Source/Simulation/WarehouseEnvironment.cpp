@@ -559,11 +559,9 @@ float AWarehouseEnvironment::GetCellSize() const
 FVector AWarehouseEnvironment::CellToWorldPosition(int32 Row, int32 Col) const
 {
     float CellSz = GetCellSize();
-    // Place cell CENTER at (row+0.5)*CellSz so (0,0) center is at CellSz/2
-    // This keeps all cell content inside the warehouse boundaries
-    float X = (Row + 0.5f) * CellSz;
-    // Mirror Y axis so that Col 0 is on the RIGHT side in UE5 (matching web view)
-    float Y = (CurrentLayout.Cols - 1 - Col + 0.5f) * CellSz;
+    // Cell center = row*cellSize + cellSize/2 — robot always at exact mid-cell
+    float X = Row * CellSz + CellSz / 2.0f;
+    float Y = Col * CellSz + CellSz / 2.0f;
     return GetActorLocation() + FVector(X, Y, 0.0f);
 }
 
@@ -967,9 +965,12 @@ bool AWarehouseEnvironment::GetSpotByCode(const FString& Code, FSpotData& OutSpo
 
 bool AWarehouseEnvironment::GetSpotPosition(const FString& SpotCode, FVector& OutPosition) const
 {
-    // 0) Root point codes: RP-Rxx-Cyy → parse row/col and use CellToNavigationPosition
-    //    This is the primary resolution for route waypoints from the backend
-    //    Uses navigation offset to keep robots away from walls/shelves
+    // 0) Root point codes: RP-Rxx-Cyy → parse row/col and use CellToWorldPosition
+    //    This is the primary resolution for route waypoints from the backend.
+    //    Uses exact cell center (CellToWorldPosition) because the backend route planner
+    //    already ensures waypoints are only on navigable cells (EMPTY corridors).
+    //    CellToNavigationPosition was previously pushing waypoints toward the grid center,
+    //    which could shift them into adjacent SHELF cells and cause robots to clip through shelves.
     if (SpotCode.StartsWith(TEXT("RP-R")))
     {
         // Parse "RP-R02-C01" → Row=2, Col=1
@@ -981,7 +982,7 @@ bool AWarehouseEnvironment::GetSpotPosition(const FString& SpotCode, FVector& Ou
             FString ColStr = Code.RightChop(DashIdx + 2); // "01" (skip "-C")
             int32 Row = FCString::Atoi(*RowStr);
             int32 Col = FCString::Atoi(*ColStr);
-            OutPosition = CellToNavigationPosition(Row, Col);
+            OutPosition = CellToWorldPosition(Row, Col);
             UE_LOG(LogTemp, Log, TEXT("[Warehouse] GetSpotPosition: Root point '%s' → Row=%d Col=%d → %s"),
                 *SpotCode, Row, Col, *OutPosition.ToString());
             return true;
@@ -1007,8 +1008,8 @@ bool AWarehouseEnvironment::GetSpotPosition(const FString& SpotCode, FVector& Ou
     {
         float CellSz = GetCellSize();
         float UE5_X = Spot->Y + CellSz / 2.0f;
-        // Mirror Y to match CellToWorldPosition: Y = (Cols-1-Col+0.5)*CellSz
-        float UE5_Y = (CurrentLayout.Cols - 0.5f) * CellSz - Spot->X;
+        // Match CellToWorldPosition: Y = col*cellSize + cellSize/2
+        float UE5_Y = Spot->X + CellSz / 2.0f;
         OutPosition = GetActorLocation() + FVector(UE5_X, UE5_Y, 0.0f);
         UE_LOG(LogTemp, Log, TEXT("[Warehouse] GetSpotPosition: Spot '%s' backend(%.0f,%.0f) → UE5(%.0f,%.0f)"),
             *SpotCode, Spot->X, Spot->Y, UE5_X, UE5_Y);
@@ -1162,7 +1163,7 @@ bool AWarehouseEnvironment::RootPointCodeToPosition(const FString& Code, FVector
             int32 Row = FCString::Atoi(*RowStr);
             int32 Col = FCString::Atoi(*ColStr);
 
-            OutPosition = CellToNavigationPosition(Row, Col);
+            OutPosition = CellToWorldPosition(Row, Col);
             UE_LOG(LogTemp, Log, TEXT("[Warehouse] RootPoint '%s' -> R=%d, C=%d -> %s"),
                 *Code, Row, Col, *OutPosition.ToString());
             return true;
@@ -1206,12 +1207,12 @@ FString AWarehouseEnvironment::FindNearestRootPointCode(const FVector& WorldPosi
 
     float CellSz = GetCellSize();
 
-    // Reverse CellToWorldPosition with mirrored Y:
-    //   X = (Row + 0.5) * CellSz          → Row = X/CellSz - 0.5
-    //   Y = (Cols-1-Col + 0.5) * CellSz   → Col = (Cols-1) - (Y/CellSz - 0.5)
+    // Reverse CellToWorldPosition (no mirroring):
+    //   X = Row*CellSz + CellSz/2  → Row = round(X/CellSz - 0.5)
+    //   Y = Col*CellSz + CellSz/2  → Col = round(Y/CellSz - 0.5)
     FVector LocalPos = WorldPosition - GetActorLocation();
     int32 Row = FMath::RoundToInt(LocalPos.X / CellSz - 0.5f);
-    int32 Col = (CurrentLayout.Cols - 1) - FMath::RoundToInt(LocalPos.Y / CellSz - 0.5f);
+    int32 Col = FMath::RoundToInt(LocalPos.Y / CellSz - 0.5f);
 
     // Clamp to valid bounds
     Row = FMath::Clamp(Row, 0, CurrentLayout.Rows - 1);

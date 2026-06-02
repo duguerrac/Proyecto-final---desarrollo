@@ -170,16 +170,17 @@ public:
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Warehouse|Dimensions")
     float WallHeight = 800.0f;
 
-    /**
-     * Navigation offset applied to robot target positions (waypoints, spot positions).
-     * Shifts the target inward from cell edges so the robot body doesn't clip through
-     * walls, shelves, or obstacles. Applied as a fraction of CellSize.
-     * Example: 0.25 means offset by CellSize*0.25 = 50cm for a 200cm cell,
-     * keeping the robot centered in the navigable area of the cell.
+     /**
+     * Navigation offset applied to robot target positions via CellToNavigationPosition().
+     * Applied as a fraction of CellSize, shifting the target toward the grid center.
+     * WARNING: This offset can push waypoints into adjacent SHELF cells, causing robots
+     * to clip through shelves. Kept at 0.0 because the backend route planner already
+     * ensures waypoints are only on navigable cells (EMPTY corridors), so the exact
+     * cell center is always a safe position.
      */
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Warehouse|Dimensions",
-              meta = (ClampMin = "0.0", ClampMax = "0.5"))
-    float RobotNavOffsetFraction = 0.35f;
+     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Warehouse|Dimensions",
+               meta = (ClampMin = "0.0", ClampMax = "0.5"))
+     float RobotNavOffsetFraction = 0.0f;
 
     // ─── Shelf Config ────────────────────────────────────────────
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Warehouse|Shelves")
