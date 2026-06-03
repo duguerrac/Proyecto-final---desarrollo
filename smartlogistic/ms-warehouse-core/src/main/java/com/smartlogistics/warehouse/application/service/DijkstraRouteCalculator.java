@@ -13,7 +13,8 @@ public class DijkstraRouteCalculator {
         Map<String, RootPoint> byCode = new HashMap<>();
         Map<Long, RootPoint> byId = new HashMap<>();
         for (RootPoint point : points) {
-            if (!point.blocked()) {
+            // Exclude blocked nodes AND SHELF-type nodes (shelves are not walkable)
+            if (!point.blocked() && !"SHELF".equals(point.type())) {
                 byCode.put(point.code(), point);
                 byId.put(point.id(), point);
             }
@@ -55,6 +56,7 @@ public class DijkstraRouteCalculator {
         }
         Map<Long, List<Neighbor>> graph = new HashMap<>();
         for (RouteEdge edge : edges) {
+            // Skip edges where source or target is excluded (blocked or SHELF)
             if (!points.containsKey(edge.sourceId()) || !points.containsKey(edge.targetId())) {
                 continue;
             }

@@ -78,10 +78,12 @@ public class LayoutProcessor {
                 // World position aligned with UE: CellToWorldPosition(row, col) = (row+0.5)*cellSize, (col+0.5)*cellSize
                 BigDecimal x = BigDecimal.valueOf(r + 0.5).multiply(cellSize);
                 BigDecimal y = BigDecimal.valueOf(c + 0.5).multiply(cellSize);
-                String code = String.format("RP-%d-%d", r, c);
+                String code = String.format("RP-R%02d-C%02d", r, c);
                 String rpType = type.toRootPointType();
+                // SHELF cells are not walkable — mark as blocked so pathfinding excludes them
+                boolean blocked = (type == CellType.SHELF);
 
-                RootPoint rp = new RootPoint(id, code, x, y, 1, rpType, false);
+                RootPoint rp = new RootPoint(id, code, x, y, 1, rpType, blocked);
                 repository.saveRootPoint(rp);
 
                 // Generate spot for SHELF cells — code matches UE: S-{row_letter}{col+1}
@@ -98,18 +100,27 @@ public class LayoutProcessor {
         // Flush root_points before saving edges (FK constraint)
         repository.flush();
 
-        // 5. Generate route_edges between adjacent navigable cells
+        // 5. Generate route_edges between adjacent WALKABLE cells only
+        //    SHELF cells are not walkable — edges must NOT connect through them
         int edgeCount = 0;
+        int skippedShelfEdges = 0;
         int[][] directions = {{0, 1}, {1, 0}}; // right, down (bidirectional covers left, up)
 
         for (int r = 0; r < rows; r++) {
             for (int c = 0; c < cols; c++) {
                 if (pointIds[r][c] == 0) continue;
+                // Skip edges originating from SHELF cells
+                if (grid[r][c] == CellType.SHELF) continue;
 
                 for (int[] dir : directions) {
                     int nr = r + dir[0];
                     int nc = c + dir[1];
                     if (nr < rows && nc < cols && pointIds[nr][nc] != 0) {
+                        // Skip edges leading into SHELF cells
+                        if (grid[nr][nc] == CellType.SHELF) {
+                            skippedShelfEdges++;
+                            continue;
+                        }
                         RouteEdge edge = new RouteEdge(
                                 pointIds[r][c], pointIds[nr][nc],
                                 cellSize, true, BigDecimal.ONE);
@@ -120,7 +131,7 @@ public class LayoutProcessor {
             }
         }
 
-        log.info("Layout activated: {} root_points, {} edges, {} shelves",
-                rows * cols, edgeCount, shelfCount);
+        log.info("Layout activated: {} root_points, {} edges ({} skipped through shelves), {} shelves",
+                rows * cols, edgeCount, skippedShelfEdges, shelfCount);
     }
 }

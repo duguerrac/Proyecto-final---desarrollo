@@ -561,10 +561,8 @@ FVector AWarehouseEnvironment::CellToWorldPosition(int32 Row, int32 Col) const
     float CellSz = GetCellSize();
     // Cell center: row/col * cellSize + cellSize/2
     float X = Row * CellSz + CellSz / 2.0f;
-    // Mirror Y axis so backend col 0 (left) appears on right in UE5 view
-    float Y = (bUsingDynamicLayout && CurrentLayout.Cols > 0)
-        ? (CurrentLayout.Cols - 1 - Col) * CellSz + CellSz / 2.0f
-        : Col * CellSz + CellSz / 2.0f;
+    // Direct mapping: col 0 → Y near 0, col N → Y near N*CellSz (no mirroring)
+    float Y = Col * CellSz + CellSz / 2.0f;
     return GetActorLocation() + FVector(X, Y, 0.0f);
 }
 
@@ -1011,13 +1009,21 @@ bool AWarehouseEnvironment::GetSpotPosition(const FString& SpotCode, FVector& Ou
     {
         float CellSz = GetCellSize();
         float UE5_X = Spot->Y + CellSz / 2.0f;
-        // Match CellToWorldPosition Y mirroring: Y = (Cols-1-Col)*CellSz + CellSz/2
-        // Backend Spot->X = col*CellSz, so UE5_Y = (Cols-0.5)*CellSz - Spot->X
-        float UE5_Y = (CurrentLayout.Cols - 0.5f) * CellSz - Spot->X;
+        // Direct mapping (no mirroring): Backend Spot->X = col*CellSz
+        float UE5_Y = Spot->X + CellSz / 2.0f;
         OutPosition = GetActorLocation() + FVector(UE5_X, UE5_Y, 0.0f);
         UE_LOG(LogTemp, Log, TEXT("[Warehouse] GetSpotPosition: Spot '%s' backend(%.0f,%.0f) → UE5(%.0f,%.0f)"),
             *SpotCode, Spot->X, Spot->Y, UE5_X, UE5_Y);
         return true;
+    }
+
+    // 2.5) Try root point codes (RP-Rxx-Cyy) — these come from route waypoints
+    //    and must be resolved via CellToWorldPosition, NOT raw backend coords.
+    //    Without this, the fallback in RobotManager uses raw backend x,y which
+    //    SWAPS axes (backend_x=col → UE5_X=row-axis) sending robots through shelves!
+    if (SpotCode.StartsWith(TEXT("RP-")))
+    {
+        return RootPointCodeToPosition(SpotCode, OutPosition);
     }
 
     // 3) Fuzzy matching: map common backend codes to location types/names
@@ -1202,6 +1208,39 @@ bool AWarehouseEnvironment::RootPointCodesToPositions(const TArray<FString>& Cod
     return true;
 }
 
+FString AWarehouseEnvironment::GetCellType(int32 Row, int32 Col) const
+{
+    if (!bUsingDynamicLayout)
+    {
+        return TEXT("");
+    }
+
+    for (const FLayoutCell& Cell : CurrentLayout.Cells)
+    {
+        if (Cell.RowIndex == Row && Cell.ColIndex == Col)
+        {
+            return Cell.CellType;
+        }
+    }
+    return TEXT("");
+}
+
+bool AWarehouseEnvironment::IsCellNavigable(int32 Row, int32 Col) const
+{
+    if (Row < 0 || Row >= CurrentLayout.Rows || Col < 0 || Col >= CurrentLayout.Cols)
+    {
+        return false;
+    }
+
+    FString Type = GetCellType(Row, Col);
+    // SHELF and OBSTACLE cells are not navigable by robots
+    if (Type == TEXT("SHELF") || Type == TEXT("OBSTACLE"))
+    {
+        return false;
+    }
+    return true;
+}
+
 FString AWarehouseEnvironment::FindNearestRootPointCode(const FVector& WorldPosition) const
 {
     if (!bUsingDynamicLayout || CurrentLayout.Rows == 0 || CurrentLayout.Cols == 0)
@@ -1211,19 +1250,79 @@ FString AWarehouseEnvironment::FindNearestRootPointCode(const FVector& WorldPosi
 
     float CellSz = GetCellSize();
 
-    // Reverse CellToWorldPosition (with Y mirroring):
+    // Reverse CellToWorldPosition (no Y mirroring):
     //   X = Row*CellSz + CellSz/2  → Row = round(X/CellSz - 0.5)
-    //   Y = (Cols-1-Col)*CellSz + CellSz/2 → Col = Cols-1 - round(Y/CellSz - 0.5)
+    //   Y = Col*CellSz + CellSz/2  → Col = round(Y/CellSz - 0.5)
     FVector LocalPos = WorldPosition - GetActorLocation();
-    int32 Row = FMath::RoundToInt(LocalPos.X / CellSz - 0.5f);
-    int32 Col = CurrentLayout.Cols - 1 - FMath::RoundToInt(LocalPos.Y / CellSz - 0.5f);
+    int32 StartRow = FMath::RoundToInt(LocalPos.X / CellSz - 0.5f);
+    int32 StartCol = FMath::RoundToInt(LocalPos.Y / CellSz - 0.5f);
 
     // Clamp to valid bounds
-    Row = FMath::Clamp(Row, 0, CurrentLayout.Rows - 1);
-    Col = FMath::Clamp(Col, 0, CurrentLayout.Cols - 1);
+    StartRow = FMath::Clamp(StartRow, 0, CurrentLayout.Rows - 1);
+    StartCol = FMath::Clamp(StartCol, 0, CurrentLayout.Cols - 1);
 
-    FString Code = FString::Printf(TEXT("RP-R%02d-C%02d"), Row, Col);
-    UE_LOG(LogTemp, Log, TEXT("[Warehouse] FindNearestRootPoint: WorldPos=%s → Row=%d Col=%d → %s"),
-        *WorldPosition.ToString(), Row, Col, *Code);
+    // If the nearest cell is already navigable, return it directly
+    if (IsCellNavigable(StartRow, StartCol))
+    {
+        FString Code = FString::Printf(TEXT("RP-R%02d-C%02d"), StartRow, StartCol);
+        UE_LOG(LogTemp, Log, TEXT("[Warehouse] FindNearestRootPoint: WorldPos=%s → Row=%d Col=%d (type='%s') → %s"),
+            *WorldPosition.ToString(), StartRow, StartCol, *GetCellType(StartRow, StartCol), *Code);
+        return Code;
+    }
+
+    // Cell is a SHELF/OBSTACLE — BFS outward to find the nearest navigable cell
+    UE_LOG(LogTemp, Log, TEXT("[Warehouse] FindNearestRootPoint: Nearest cell R%d C%d is '%s' (not navigable), searching outward..."),
+        StartRow, StartCol, *GetCellType(StartRow, StartCol));
+
+    TSet<int32> Visited;
+    int32 MaxIdx = CurrentLayout.Rows * CurrentLayout.Cols;
+    Visited.Reserve(MaxIdx);
+
+    // BFS queue: pairs of (Row, Col)
+    TQueue<TPair<int32, int32>> Queue;
+    Queue.Enqueue(TPair<int32, int32>(StartRow, StartCol));
+    Visited.Add(StartRow * CurrentLayout.Cols + StartCol);
+
+    // 4-directional neighbors (Manhattan)
+    const int32 Dirs[4][2] = { {1,0}, {-1,0}, {0,1}, {0,-1} };
+
+    while (!Queue.IsEmpty())
+    {
+        TPair<int32, int32> Current;
+        Queue.Dequeue(Current);
+        int32 R = Current.Key;
+        int32 C = Current.Value;
+
+        for (int32 d = 0; d < 4; d++)
+        {
+            int32 NR = R + Dirs[d][0];
+            int32 NC = C + Dirs[d][1];
+
+            // Bounds check
+            if (NR < 0 || NR >= CurrentLayout.Rows || NC < 0 || NC >= CurrentLayout.Cols)
+                continue;
+
+            int32 Idx = NR * CurrentLayout.Cols + NC;
+            if (Visited.Contains(Idx))
+                continue;
+            Visited.Add(Idx);
+
+            if (IsCellNavigable(NR, NC))
+            {
+                FString Code = FString::Printf(TEXT("RP-R%02d-C%02d"), NR, NC);
+                UE_LOG(LogTemp, Log, TEXT("[Warehouse] FindNearestRootPoint: Found navigable cell R%d C%d (type='%s') → %s"),
+                    NR, NC, *GetCellType(NR, NC), *Code);
+                return Code;
+            }
+
+            // Not navigable, keep searching
+            Queue.Enqueue(TPair<int32, int32>(NR, NC));
+        }
+    }
+
+    // Fallback: return the clamped original cell even if not navigable
+    FString Code = FString::Printf(TEXT("RP-R%02d-C%02d"), StartRow, StartCol);
+    UE_LOG(LogTemp, Warning, TEXT("[Warehouse] FindNearestRootPoint: No navigable cell found! Fallback to R%d C%d → %s"),
+        StartRow, StartCol, *Code);
     return Code;
 }

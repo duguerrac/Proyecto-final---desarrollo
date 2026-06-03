@@ -525,8 +525,10 @@ export default function WarehousePage() {
                   </div>
                 ))}
               </div>
-              {/* Grid rows */}
-              {grid.map((row, r) => (
+              {/* Grid rows — reversed so Row 0 is at the bottom (matches UE5 top-down view) */}
+              {[...grid].reverse().map((row, ri) => {
+                const r = layout.rows - 1 - ri;
+                return (
                 <div key={r} className="flex">
                   <div className="w-10 h-14 flex items-center justify-center text-[#64748b] text-xs font-mono flex-shrink-0">
                     {r}
@@ -600,7 +602,8 @@ export default function WarehousePage() {
                     );
                   })}
                 </div>
-              ))}
+              );
+              })}
             </div>
           )}
         </div>

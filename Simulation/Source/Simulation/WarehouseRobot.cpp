@@ -223,11 +223,26 @@ void AWarehouseRobot::Tick(float DeltaTime)
         }
         else
         {
-            Direction.Normalize();
-            FVector NewPos = CurrentPos + Direction * FMath::Min(MovementSpeed * DeltaTime, DistanceToTarget);
+            // ─── Axis-aligned (Manhattan) movement ─────────────────────
+            // Move along one axis at a time to prevent diagonal paths
+            // that clip through shelf blocks in the warehouse grid.
+            FVector MoveDir;
+            if (FMath::Abs(Direction.X) > 1.0f)
+            {
+                // Move along X axis first
+                MoveDir = FVector(Direction.X, 0.0f, 0.0f);
+            }
+            else
+            {
+                // Then move along Y axis
+                MoveDir = FVector(0.0f, Direction.Y, 0.0f);
+            }
+            MoveDir.Normalize();
+
+            FVector NewPos = CurrentPos + MoveDir * FMath::Min(MovementSpeed * DeltaTime, DistanceToTarget);
             SetActorLocation(NewPos);
 
-            FRotator TargetRot = FRotationMatrix::MakeFromX(Direction).Rotator();
+            FRotator TargetRot = FRotationMatrix::MakeFromX(MoveDir).Rotator();
             SetActorRotation(FMath::RInterpTo(GetActorRotation(), TargetRot, DeltaTime, 5.0f));
 
             float DeltaDist = (NewPos - PreviousPosition).Size();
@@ -328,10 +343,28 @@ void AWarehouseRobot::FollowWaypoints(const TArray<FVector>& InWaypoints)
     CurrentWaypointIndex = 0;
     bFollowingWaypoints = true;
 
+    // ─── Detailed route log ──────────────────────────────────────
+    FString RouteSummary = FString::Printf(TEXT("[ROUTE] Robot '%s' route: %d waypoints\n"),
+        *RobotId, Waypoints.Num());
+    for (int32 i = 0; i < Waypoints.Num(); i++)
+    {
+        RouteSummary += FString::Printf(TEXT("  [%d] → (%.0f, %.0f, %.0f)\n"),
+            i, Waypoints[i].X, Waypoints[i].Y, Waypoints[i].Z);
+    }
+    UE_LOG(LogTemp, Log, TEXT("%s"), *RouteSummary);
+
+    // On-screen debug: show route overview
+    if (GEngine)
+    {
+        FString ShortRoute = FString::Printf(TEXT("[ROUTE] %s: %d waypoints | Start(%.0f,%.0f) → End(%.0f,%.0f)"),
+            *RobotId, Waypoints.Num(),
+            Waypoints[0].X, Waypoints[0].Y,
+            Waypoints.Last().X, Waypoints.Last().Y);
+        GEngine->AddOnScreenDebugMessage(-1, 8.0f, FColor::Cyan, *ShortRoute);
+    }
+
     // Start moving to first waypoint
     MoveTo(Waypoints[0]);
-    UE_LOG(LogTemp, Log, TEXT("[Robot:%s] Following %d waypoints, starting with index 0"),
-        *RobotId, Waypoints.Num());
 }
 
 // ═══════════════════════════════════════════════════════════════════

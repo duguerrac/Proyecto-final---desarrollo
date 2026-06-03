@@ -322,10 +322,16 @@ public:
     UFUNCTION(BlueprintCallable, Category = "SmartLogistics")
     bool RootPointCodesToPositions(const TArray<FString>& Codes, TArray<FVector>& OutPositions) const;
 
+    /** Get the cell type at (Row, Col), returns empty string if out of bounds */
+    FString GetCellType(int32 Row, int32 Col) const;
+
+    /** Check if a cell is navigable (not SHELF, not OBSTACLE) */
+    bool IsCellNavigable(int32 Row, int32 Col) const;
+
     /**
-     * Find the nearest root point code for a given world position.
-     * Reverses CellToWorldPosition: converts world X,Y back to row,col,
-     * then formats as "RP-Rxx-Cyy". Clamps to valid layout bounds.
+     * Find the nearest NAVIGABLE root point code for a given world position.
+     * If the nearest cell is a SHELF or OBSTACLE, searches outward (BFS) for
+     * the closest navigable cell (EMPTY, CHARGING, etc.) and returns its code.
      * Returns empty string if no dynamic layout is available.
      */
     UFUNCTION(BlueprintCallable, Category = "SmartLogistics")

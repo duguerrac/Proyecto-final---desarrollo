@@ -110,6 +110,17 @@ public class RouteController {
     }
 
     /**
+     * Get the current grid state (for debugging).
+     * GET /api/routes/grid
+     */
+    @GetMapping("/grid")
+    public ResponseEntity<Map<String, Object>> getGridState() {
+        Map<String, Object> response = new LinkedHashMap<>();
+        response.put("grid", routePlanningService.getGridState());
+        return ResponseEntity.ok(response);
+    }
+
+    /**
      * Get entry/exit/charging points.
      * GET /api/routes/points
      */

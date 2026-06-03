@@ -1335,6 +1335,25 @@ void ARobotManager::RequestRouteAndFollowWaypoints(AWarehouseRobot* Robot, const
         // If we have waypoints, follow them; otherwise direct move to target
         if (Waypoints.Num() > 0)
         {
+            // ─── Detailed route log ──────────────────────────────────
+            FString RouteLog = FString::Printf(TEXT("[ROUTE] Robot '%s' route resolved: %d waypoints from API\n"),
+                *RobotId, Waypoints.Num());
+            for (int32 i = 0; i < Waypoints.Num(); i++)
+            {
+                RouteLog += FString::Printf(TEXT("  [%d] → (%.0f, %.0f, %.0f)\n"),
+                    i, Waypoints[i].X, Waypoints[i].Y, Waypoints[i].Z);
+            }
+            UE_LOG(LogTemp, Log, TEXT("%s"), *RouteLog);
+
+            if (GEngine)
+            {
+                FString ScreenRoute = FString::Printf(TEXT("[ROUTE] %s: %d pts | (%.0f,%.0f) → (%.0f,%.0f)"),
+                    *RobotId, Waypoints.Num(),
+                    Waypoints[0].X, Waypoints[0].Y,
+                    Waypoints.Last().X, Waypoints.Last().Y);
+                GEngine->AddOnScreenDebugMessage(-1, 8.0f, FColor::Yellow, *ScreenRoute);
+            }
+
             Robot->FollowWaypoints(Waypoints);
             UE_LOG(LogTemp, Log, TEXT("[RobotManager] Robot '%s' following %d waypoints"), *RobotId, Waypoints.Num());
         }
