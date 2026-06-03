@@ -63,7 +63,7 @@ export interface ReceivePackageRequest {
 }
 
 // ==================== ORDER ====================
-export type OrderStatus = 'PENDING' | 'IN_PROGRESS' | 'COMPLETED' | 'CANCELLED';
+export type OrderStatus = 'PENDING' | 'DISPATCHED' | 'IN_PROGRESS' | 'COMPLETED' | 'CANCELLED';
 
 export interface OrderLine {
   id?: string;

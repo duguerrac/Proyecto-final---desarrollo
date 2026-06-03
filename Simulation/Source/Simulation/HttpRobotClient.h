@@ -72,6 +72,9 @@ public:
     /** Perform one poll cycle (called by RobotManager from Tick) */
     void PollForCommands();
 
+    /** Confirm mission received — clears pendingMission on backend after UE5 processes it */
+    void ConfirmMissionReceived(const FString& RobotId);
+
     /** Delegate: command received for a robot */
     UPROPERTY(BlueprintAssignable, Category = "SmartLogistics")
     FOnHttpRobotCommand OnRobotCommandReceived;
@@ -102,6 +105,9 @@ private:
 
     /** Set of package IDs already processed (avoid duplicates) */
     TSet<int64> ProcessedPackageIds;
+
+    /** Set of robot IDs whose pending mission we've already broadcast (avoid re-processing same mission) */
+    TSet<FString> BroadcastMissionRobotIds;
 
     /** Poll for RECEIVED packages from warehouse-core API */
     void PollForPendingPackages();

@@ -532,6 +532,13 @@ void ARobotManager::OnStompConnected()
         GEngine->AddOnScreenDebugMessage(-1, 5.0f, FColor::Green,
             TEXT("[STOMP] Connected & subscribed to logistics.exchange"));
     }
+
+    // Immediately poll for any pending missions that arrived while disconnected
+    if (HttpClient && HttpClient->IsConnected())
+    {
+        HttpClient->PollForCommands();
+        UE_LOG(LogTemp, Log, TEXT("[RobotManager] STOMP reconnect — polling for missed missions"));
+    }
 }
 
 void ARobotManager::HandleStompMessage(const FString& Destination, const FString& Body)
@@ -685,14 +692,44 @@ void ARobotManager::HandleMissionCommand(const FString& InRobotId, int64 InPacka
     UE_LOG(LogTemp, Log, TEXT("[RobotManager] Mission command: robot=%s, type=%s, package=%lld, spot=%s, item=%s, qty=%d"),
         *InRobotId, *InMissionType, InPackageId, *InTargetSpotCode, *InItemSku, InQuantity);
 
-    AWarehouseRobot** Found = RobotActors.Find(InRobotId);
-    if (!Found || !*Found)
+    // Dedup: if robot already has an active mission with the same package/order ID, skip
+    AWarehouseRobot** ExistingRobot = RobotActors.Find(InRobotId);
+    if (ExistingRobot && *ExistingRobot)
     {
-        UE_LOG(LogTemp, Warning, TEXT("[RobotManager] Robot '%s' not found for mission"), *InRobotId);
-        return;
+        AWarehouseRobot* Robot = *ExistingRobot;
+        const FRobotMissionData& CurMission = Robot->ActiveMission;
+        if (CurMission.PackageId == InPackageId && InPackageId != 0 && !CurMission.MissionType.IsEmpty())
+        {
+            UE_LOG(LogTemp, Log, TEXT("[RobotManager] Robot '%s' already has mission for package %lld — skipping duplicate"),
+                *InRobotId, InPackageId);
+            return;
+        }
     }
 
-    AWarehouseRobot* Robot = *Found;
+    // Find or create the robot actor
+    AWarehouseRobot* Robot = nullptr;
+    if (ExistingRobot && *ExistingRobot)
+    {
+        Robot = *ExistingRobot;
+    }
+    else
+    {
+        // Robot not in scene yet — create it from backend data
+        UE_LOG(LogTemp, Log, TEXT("[RobotManager] Robot '%s' not found — creating for mission"), *InRobotId);
+        FSmartLogisticRobotData Data;
+        Data.RobotId = InRobotId;
+        Data.RobotName = InRobotId;
+        Data.BatteryLevel = 100;
+        Data.bAvailable = false;
+        Data.CurrentLocation = InReceptionSpotCode;
+        Data.OperationalMode = ERobotOperationalMode::MOVING;
+        Robot = FindOrCreateRobot(Data);
+        if (!Robot)
+        {
+            UE_LOG(LogTemp, Warning, TEXT("[RobotManager] Failed to create robot '%s' for mission"), *InRobotId);
+            return;
+        }
+    }
 
     if (!WarehouseEnv)
     {
@@ -722,6 +759,13 @@ void ARobotManager::HandleMissionCommand(const FString& InRobotId, int64 InPacka
 
     // Notify backend of state change: robot is now MOVING (dispatched for mission)
     NotifyRobotStateChanged(Robot, TEXT("MOVING"));
+
+    // Clear pendingMission on backend so it doesn't appear in future HTTP polls
+    // (whether mission arrived via STOMP or HTTP, we must confirm receipt)
+    if (HttpClient && HttpClient->IsConnected())
+    {
+        HttpClient->ConfirmMissionReceived(InRobotId);
+    }
 
     if (InMissionType == TEXT("STOCK_IN"))
     {
@@ -1274,8 +1318,24 @@ void ARobotManager::RequestRouteAndFollowWaypoints(AWarehouseRobot* Robot, const
 
         if (Code != 200)
         {
-            UE_LOG(LogTemp, Warning, TEXT("[RobotManager] Route API returned HTTP %d for robot '%s': %s"),
+            UE_LOG(LogTemp, Warning, TEXT("[RobotManager] Route API returned HTTP %d for robot '%s': %s — falling back to direct move"),
                 Code, *RobotId, *Body);
+
+            // Fallback: move directly to the target position if route API fails
+            FVector TargetPos = FVector::ZeroVector;
+            if (Robot->bOnMission)
+            {
+                if (bPickUp)
+                    TargetPos = Robot->ActiveMission.TargetSpotPosition;
+                else
+                    TargetPos = Robot->ActiveMission.ReceptionSpotPosition;
+            }
+            if (TargetPos != FVector::ZeroVector)
+            {
+                Robot->MoveTo(TargetPos);
+                UE_LOG(LogTemp, Log, TEXT("[RobotManager] Robot '%s' moving directly to %s (route fallback)"),
+                    *RobotId, *TargetPos.ToString());
+            }
             return;
         }
 

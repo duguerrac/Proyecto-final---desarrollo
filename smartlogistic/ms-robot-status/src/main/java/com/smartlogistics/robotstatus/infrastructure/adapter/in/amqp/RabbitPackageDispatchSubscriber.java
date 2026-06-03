@@ -65,10 +65,33 @@ public class RabbitPackageDispatchSubscriber {
         log.info("📦 Package #{} received (SKU={}) — reception={}, target={}, item={}, qty={}",
                 packageId, sku, receptionSpot, targetSpot, itemId, quantity);
 
-        // UE5 simulation handles robot dispatching directly (it owns the physical robots).
-        // The Java service only tracks robot state — dispatch is delegated to UE5's auto-dispatch.
-        log.info("📦 Package #{} — delegating dispatch to UE5 simulation (visual + auto-dispatch via STOMP)",
-                packageId);
+        if (receptionSpot.isEmpty() || targetSpot.isEmpty()) {
+            log.warn("⚠️ Package #{} missing reception/target spot — cannot dispatch robot", packageId);
+            return;
+        }
+
+        // Build mission data to store on the robot for HTTP polling fallback
+        java.util.Map<String, Object> mission = new java.util.HashMap<>();
+        mission.put("missionType", "STOCK_IN");
+        mission.put("packageId", packageId);
+        mission.put("receptionSpotCode", receptionSpot);
+        mission.put("targetSpotCode", targetSpot);
+        mission.put("itemSku", sku);
+        mission.put("itemId", itemId);
+        mission.put("quantity", quantity);
+
+        String robotId = dispatchRobotUseCase.findAvailableRobot(mission);
+
+        if (robotId != null) {
+            log.info("🤖 Dispatching robot {} for STOCK_IN package #{} ({} x{} from {} → {})",
+                    robotId, packageId, sku, quantity, receptionSpot, targetSpot);
+
+            // Send STOCK_IN mission via STOMP (primary) and store on robot for HTTP fallback
+            robotDispatchPort.sendStockInMission(robotId, packageId, sku,
+                    receptionSpot, targetSpot, itemId, quantity);
+        } else {
+            log.warn("⚠️ No available robot for package #{}", packageId);
+        }
     }
 
     private void handleMissionCompleted(JsonNode event) {

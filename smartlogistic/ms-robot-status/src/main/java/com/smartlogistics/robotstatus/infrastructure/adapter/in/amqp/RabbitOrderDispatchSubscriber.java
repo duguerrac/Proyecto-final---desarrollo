@@ -63,7 +63,16 @@ public class RabbitOrderDispatchSubscriber {
                 return;
             }
 
-            String robotId = dispatchRobotUseCase.findAvailableRobot();
+            // Build mission data to store on the robot for HTTP polling fallback
+            java.util.Map<String, Object> mission = new java.util.HashMap<>();
+            mission.put("missionType", "STOCK_OUT");
+            mission.put("orderId", orderId);
+            mission.put("pickupSpotCode", pickupSpot);
+            mission.put("deliverySpotCode", deliveryPoint);
+            mission.put("itemSku", itemSku);
+            mission.put("quantity", quantity);
+
+            String robotId = dispatchRobotUseCase.findAvailableRobot(mission);
 
             if (robotId != null) {
                 log.info("🤖 Dispatching robot {} for STOCK_OUT order #{} ({} x{} from {} → {})",

@@ -172,6 +172,13 @@ public class PackageController {
             orderRepo.save(order);
             log.info("[RabbitMQ] STOCK_OUT Order {} → COMPLETED", orderId);
 
+            // Publish order.status_changed so OrderController SSE can notify frontend
+            String statusEvent = String.format(
+                "{\"orderId\":%d,\"status\":\"COMPLETED\",\"robotId\":\"%s\"}",
+                order.getId(), order.getRobotId() != null ? order.getRobotId() : "");
+            rabbitTemplate.convertAndSend(exchange, "order.status_changed", statusEvent);
+            log.info("[RabbitMQ] Published order.status_changed (COMPLETED) for order {}", orderId);
+
             broadcastStockUpdate(spot.getId());
         });
     }

@@ -49,6 +49,11 @@ public class RabbitMQConfig {
         return QueueBuilder.durable("robot.status.update.wh").build();
     }
 
+    @Bean
+    public Queue orderStatusChangedQueue() {
+        return QueueBuilder.durable("order.status_changed").build();
+    }
+
     // ─── Bindings ───
 
     @Bean
@@ -69,5 +74,10 @@ public class RabbitMQConfig {
     @Bean
     public Binding robotStatusUpdateBinding(Queue robotStatusUpdateQueue, TopicExchange logisticsExchange) {
         return BindingBuilder.bind(robotStatusUpdateQueue).to(logisticsExchange).with("robot.status.update");
+    }
+
+    @Bean
+    public Binding orderStatusChangedBinding(Queue orderStatusChangedQueue, TopicExchange logisticsExchange) {
+        return BindingBuilder.bind(orderStatusChangedQueue).to(logisticsExchange).with("order.status_changed");
     }
 }

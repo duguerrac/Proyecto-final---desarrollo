@@ -189,6 +189,46 @@ public class RobotStatusController {
         return ResponseEntity.ok(response);
     }
 
+    // ── HTTP Fallback: UE5 polls for pending missions ────────────────────
+
+    /**
+     * Returns all robots that have a pending mission.
+     * UE5 can poll this endpoint as a fallback when STOMP is not connected.
+     * This is READ-ONLY — does NOT clear the mission (prevents race condition
+     * where clearing pendingMission allows telemetry to overwrite MOVING→IDLE).
+     * Use DELETE /api/robots/{id}/pending-mission to clear after processing.
+     */
+    @GetMapping("/pending-missions")
+    public ResponseEntity<List<java.util.Map<String, Object>>> getPendingMissions() {
+        List<java.util.Map<String, Object>> missions = new java.util.ArrayList<>();
+        for (Robot robot : getRobotStatus.getAllRobots()) {
+            if (robot.getPendingMission() != null) {
+                java.util.Map<String, Object> entry = new java.util.HashMap<>();
+                entry.put("robotId", robot.getId());
+                entry.put("mission", robot.getPendingMission());
+                missions.add(entry);
+                log.debug("[HTTP-Mission] Robot {} has pending mission (read-only, not cleared)", robot.getId());
+            }
+        }
+        return ResponseEntity.ok(missions);
+    }
+
+    /**
+     * Clear a robot's pending mission after UE5 has confirmed processing.
+     * This prevents the race condition where clearing the mission too early
+     * allows telemetry to overwrite MOVING→IDLE.
+     */
+    @DeleteMapping("/{id}/pending-mission")
+    public ResponseEntity<Void> clearPendingMission(@PathVariable String id) {
+        Robot robot = getRobotStatus.getStatus(id);
+        if (robot.getPendingMission() != null) {
+            robot.setPendingMission(null);
+            getRobotStatus.saveRobot(robot);
+            log.info("[HTTP-Mission] Robot {} pending mission cleared after confirmation", id);
+        }
+        return ResponseEntity.ok().build();
+    }
+
     // ── SSE Telemetry Stream ────────────────────────────────────────────
 
     @GetMapping(value = "/telemetry/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
@@ -208,12 +248,14 @@ public class RobotStatusController {
 
     public record RobotResponse(String robotId, String name, int batteryLevel,
                                 boolean available, String currentLocation,
-                                String operationalMode) {
+                                String operationalMode,
+                                java.util.Map<String, Object> pendingMission) {
         static RobotResponse from(Robot robot) {
             return new RobotResponse(
                     robot.getId(), robot.getName(), robot.getBatteryLevel(),
                     robot.isAvailable(), robot.getCurrentLocation(),
-                    robot.getOperationalMode()
+                    robot.getOperationalMode(),
+                    robot.getPendingMission()
             );
         }
     }

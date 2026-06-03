@@ -99,10 +99,27 @@ public class RobotStatusService
     }
 
     @Override
+    public String findAvailableRobot(java.util.Map<String, Object> mission) {
+        return robotCachePort.findAll().stream()
+                .filter(Robot::isAssignable)
+                .findFirst()
+                .map(robot -> {
+                    robot.setAvailable(false);
+                    robot.setOperationalMode(RobotStatus.MOVING);
+                    robot.setPendingMission(mission);
+                    robotCachePort.save(robot);
+                    robotEventPort.publishStatusUpdate(robot);
+                    return robot.getId();
+                })
+                .orElse(null);
+    }
+
+    @Override
     public void markRobotAvailable(String robotId) {
         robotCachePort.findById(robotId).ifPresent(robot -> {
             robot.setAvailable(true);
             robot.setOperationalMode(RobotStatus.IDLE);
+            robot.setPendingMission(null);
             robotCachePort.save(robot);
             robotEventPort.publishStatusUpdate(robot);
         });

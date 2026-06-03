@@ -1,5 +1,7 @@
 package com.smartlogistics.robotstatus.infrastructure.adapter.out.redis;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.smartlogistics.robotstatus.application.port.out.RobotCachePort;
 import com.smartlogistics.robotstatus.domain.model.Robot;
 import org.springframework.data.redis.core.HashOperations;
@@ -22,22 +24,37 @@ public class RedisRobotAdapter implements RobotCachePort {
 
     private final HashOperations<String, String, String> hashOps;
     private final RedisTemplate<String, String> redisTemplate;
+    private final ObjectMapper objectMapper;
 
-    public RedisRobotAdapter(RedisTemplate<String, String> redisTemplate) {
+    public RedisRobotAdapter(RedisTemplate<String, String> redisTemplate, ObjectMapper objectMapper) {
         this.redisTemplate = redisTemplate;
         this.hashOps = redisTemplate.opsForHash();
+        this.objectMapper = objectMapper;
     }
 
     @Override
     public void save(Robot robot) {
         String key = redisKey(robot.id());
-        hashOps.putAll(key, Map.of(
+        Map<String, String> fields = new java.util.HashMap<>(Map.of(
                 "name", robot.name(),
                 "batteryLevel", String.valueOf(robot.batteryLevel()),
                 "available", String.valueOf(robot.available()),
-                "currentLocation", robot.currentLocation(),
-                "operationalMode", robot.operationalMode()
+                "currentLocation", robot.currentLocation() != null ? robot.currentLocation() : "",
+                "operationalMode", robot.operationalMode() != null ? robot.operationalMode() : "IDLE"
         ));
+
+        // Serialize pendingMission as JSON string
+        if (robot.getPendingMission() != null) {
+            try {
+                fields.put("pendingMission", objectMapper.writeValueAsString(robot.getPendingMission()));
+            } catch (JsonProcessingException e) {
+                fields.put("pendingMission", "");
+            }
+        } else {
+            fields.put("pendingMission", "");
+        }
+
+        hashOps.putAll(key, fields);
         // Track this robot ID in the index set
         redisTemplate.opsForSet().add(ALL_IDS_KEY, robot.id());
     }
@@ -68,8 +85,9 @@ public class RedisRobotAdapter implements RobotCachePort {
                 .collect(Collectors.toList());
     }
 
+    @SuppressWarnings("unchecked")
     private Robot toRobot(String robotId, Map<String, String> entries) {
-        return new Robot(
+        Robot robot = new Robot(
                 robotId,
                 entries.getOrDefault("name", ""),
                 Integer.parseInt(entries.getOrDefault("batteryLevel", "0")),
@@ -77,6 +95,19 @@ public class RedisRobotAdapter implements RobotCachePort {
                 entries.getOrDefault("currentLocation", ""),
                 entries.getOrDefault("operationalMode", "")
         );
+
+        // Deserialize pendingMission from JSON
+        String missionJson = entries.getOrDefault("pendingMission", "");
+        if (!missionJson.isEmpty()) {
+            try {
+                Map<String, Object> mission = objectMapper.readValue(missionJson, Map.class);
+                robot.setPendingMission(mission);
+            } catch (JsonProcessingException e) {
+                // Ignore parse errors — mission stays null
+            }
+        }
+
+        return robot;
     }
 
     private String redisKey(String robotId) {

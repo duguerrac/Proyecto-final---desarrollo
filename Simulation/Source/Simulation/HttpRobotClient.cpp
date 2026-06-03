@@ -126,8 +126,8 @@ void UHttpRobotClient::PollForCommands()
 {
     if (!bIsPolling) return;
 
-    // NOTE: Package reception is handled via STOMP (RabbitMQ) events, NOT HTTP polling.
-    // See RobotManager::HandleStompMessage() → package.dispatched
+    // Poll for pending missions (STOCK_OUT / STOCK_IN) via HTTP fallback
+    // This replaces STOMP consumption when STOMP is not connected
     PollForRobotCommands();
 }
 
@@ -208,34 +208,110 @@ void UHttpRobotClient::PollForRobotCommands()
 {
     if (ApiBaseUrl.IsEmpty()) return;
 
-    // Poll all robots to check for assigned missions
-    FString Url = FString::Printf(TEXT("%s/api/robots"), *ApiBaseUrl);
+    // Poll the pending-missions endpoint — backend stores missions on robot objects.
+    // The endpoint is now READ-ONLY (doesn't clear the mission).
+    // We clear it separately via ConfirmMissionReceived() after UE5 processes it.
+    FString Url = FString::Printf(TEXT("%s/api/robots/pending-missions"), *ApiBaseUrl);
 
     MakeRequest(TEXT("GET"), Url, TEXT(""), [this](int32 Code, const FString& Body)
     {
         if (!bIsPolling) return;
         if (Code != 200 || Body.IsEmpty()) return;
 
-        TArray<TSharedPtr<FJsonValue>> Robots;
+        // Response is an array of { robotId, mission: { missionType, ... } }
+        TArray<TSharedPtr<FJsonValue>> Missions;
         TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(Body);
-        if (!FJsonSerializer::Deserialize(Reader, Robots)) return;
+        if (!FJsonSerializer::Deserialize(Reader, Missions)) return;
+        if (!Missions.Num()) return;
 
-        for (const TSharedPtr<FJsonValue>& RobotVal : Robots)
+        UE_LOG(LogTemp, Log, TEXT("[HttpRobotClient] Found %d pending mission(s)"), Missions.Num());
+
+        for (const TSharedPtr<FJsonValue>& EntryVal : Missions)
         {
-            TSharedPtr<FJsonObject> Robot = RobotVal->AsObject();
-            if (!Robot.IsValid()) continue;
+            TSharedPtr<FJsonObject> Entry = EntryVal->AsObject();
+            if (!Entry.IsValid()) continue;
 
-            FString RobotId = Robot->GetStringField(TEXT("robotId"));
-            FString Mode = Robot->GetStringField(TEXT("operationalMode"));
-            FString Location = Robot->GetStringField(TEXT("currentLocation"));
-            bool bAvailable = Robot->GetBoolField(TEXT("available"));
+            FString RobotId = Entry->GetStringField(TEXT("robotId"));
+            TSharedPtr<FJsonObject> Mission = Entry->GetObjectField(TEXT("mission"));
+            if (!Mission.IsValid()) continue;
 
-            // If robot is not available and mode is MISSION, it has an active command
-            if (!bAvailable && Mode == TEXT("MISSION"))
+            // Skip if we already broadcast this robot's mission (dedup within HTTP polling)
+            if (BroadcastMissionRobotIds.Contains(RobotId))
             {
-                UE_LOG(LogTemp, Verbose, TEXT("[HttpRobotClient] Robot %s on MISSION at %s"), *RobotId, *Location);
-                // The mission details are handled via the package flow
+                UE_LOG(LogTemp, Verbose, TEXT("[HttpRobotClient] Robot %s mission already broadcast — skipping"), *RobotId);
+                continue;
             }
+
+            FString MissionType = Mission->GetStringField(TEXT("missionType"));
+
+            if (MissionType == TEXT("STOCK_OUT"))
+            {
+                // STOCK_OUT: robot goes to shelf (pickupSpotCode) then to delivery (deliverySpotCode)
+                int64 OrderId = Mission->GetIntegerField(TEXT("orderId"));
+                FString PickupSpot = Mission->GetStringField(TEXT("pickupSpotCode"));
+                FString DeliverySpot = Mission->GetStringField(TEXT("deliverySpotCode"));
+                FString ItemSku = Mission->GetStringField(TEXT("itemSku"));
+                int32 Quantity = Mission->GetIntegerField(TEXT("quantity"));
+
+                UE_LOG(LogTemp, Log, TEXT("[HttpRobotClient] STOCK_OUT: Robot %s -> Order #%lld (%s x%d from %s -> %s)"),
+                    *RobotId, OrderId, *ItemSku, Quantity, *PickupSpot, *DeliverySpot);
+
+                // Mark as broadcast to avoid re-processing on next poll
+                BroadcastMissionRobotIds.Add(RobotId);
+
+                // Broadcast via the mission command delegate
+                OnMissionCommandReceived.Broadcast(RobotId, OrderId, MissionType,
+                    PickupSpot, DeliverySpot, ItemSku, Quantity);
+
+                // Confirm mission received — clear it on backend so it doesn't show up again
+                ConfirmMissionReceived(RobotId);
+            }
+            else if (MissionType == TEXT("STOCK_IN"))
+            {
+                // STOCK_IN: robot goes to reception (receptionSpotCode) then to shelf (targetSpotCode)
+                int64 PackageId = Mission->GetIntegerField(TEXT("packageId"));
+                FString ReceptionSpot = Mission->GetStringField(TEXT("receptionSpotCode"));
+                FString TargetSpot = Mission->GetStringField(TEXT("targetSpotCode"));
+                FString ItemSku = Mission->GetStringField(TEXT("itemSku"));
+                int32 Quantity = Mission->GetIntegerField(TEXT("quantity"));
+
+                UE_LOG(LogTemp, Log, TEXT("[HttpRobotClient] STOCK_IN: Robot %s -> Package #%lld (%s x%d from %s -> %s)"),
+                    *RobotId, PackageId, *ItemSku, Quantity, *ReceptionSpot, *TargetSpot);
+
+                // Mark as broadcast to avoid re-processing on next poll
+                BroadcastMissionRobotIds.Add(RobotId);
+
+                // Broadcast via the mission command delegate
+                // For STOCK_IN: ReceptionSpot -> pickupSpot, TargetSpot -> deliverySpot
+                OnMissionCommandReceived.Broadcast(RobotId, PackageId, MissionType,
+                    ReceptionSpot, TargetSpot, ItemSku, Quantity);
+
+                // Confirm mission received — clear it on backend so it doesn't show up again
+                ConfirmMissionReceived(RobotId);
+            }
+            else
+            {
+                UE_LOG(LogTemp, Warning, TEXT("[HttpRobotClient] Unknown mission type: %s for robot %s"), *MissionType, *RobotId);
+            }
+        }
+    });
+}
+
+void UHttpRobotClient::ConfirmMissionReceived(const FString& RobotId)
+{
+    if (ApiBaseUrl.IsEmpty()) return;
+
+    // DELETE /api/robots/{id}/pending-mission — clears the mission after UE5 has processed it
+    FString Url = FString::Printf(TEXT("%s/api/robots/%s/pending-mission"), *ApiBaseUrl, *RobotId);
+    MakeRequest(TEXT("DELETE"), Url, TEXT(""), [RobotId](int32 Code, const FString& Body)
+    {
+        if (Code == 200)
+        {
+            UE_LOG(LogTemp, Log, TEXT("[HttpRobotClient] Mission confirmed and cleared for robot %s"), *RobotId);
+        }
+        else
+        {
+            UE_LOG(LogTemp, Warning, TEXT("[HttpRobotClient] Failed to clear mission for robot %s (HTTP %d)"), *RobotId, Code);
         }
     });
 }

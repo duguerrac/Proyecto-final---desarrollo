@@ -1,5 +1,7 @@
 package com.smartlogistics.robotstatus.domain.model;
 
+import java.util.Map;
+
 /**
  * Domain entity representing a warehouse robot.
  * Mutable to support status updates (telemetry, dispatch, battery).
@@ -12,6 +14,7 @@ public class Robot {
     private boolean available;
     private String currentLocation;
     private String operationalMode;
+    private Map<String, Object> pendingMission;
 
     public Robot() {}
 
@@ -45,6 +48,9 @@ public class Robot {
     public String getOperationalMode() { return operationalMode; }
     public String operationalMode() { return operationalMode; }
 
+    public Map<String, Object> getPendingMission() { return pendingMission; }
+    public Map<String, Object> pendingMission() { return pendingMission; }
+
     // --- Mutators ---
 
     public void setId(String id) { this.id = id; }
@@ -54,6 +60,7 @@ public class Robot {
     public void setCurrentLocation(String currentLocation) { this.currentLocation = currentLocation; }
     public void setOperationalMode(String mode) { this.operationalMode = mode; }
     public void setOperationalMode(RobotStatus status) { this.operationalMode = status.name(); }
+    public void setPendingMission(Map<String, Object> mission) { this.pendingMission = mission; }
 
     // --- Business logic ---
 
@@ -66,6 +73,8 @@ public class Robot {
 
     /**
      * Update telemetry data from the simulation.
+     * Preserves pendingMission and operationalMode if the robot has an active mission
+     * (prevents UE5 telemetry from overwriting dispatch state).
      */
     public void updateTelemetry(int batteryLevel, String currentLocation, String operationalMode) {
         this.batteryLevel = batteryLevel;
@@ -73,8 +82,21 @@ public class Robot {
         if (currentLocation != null && !currentLocation.isEmpty()) {
             this.currentLocation = currentLocation;
         }
+        // Only update operational mode if the robot doesn't have a pending mission
+        // (prevents UE5's IDLE telemetry from overwriting MOVING state during dispatch)
         if (operationalMode != null && !operationalMode.isEmpty()) {
-            this.operationalMode = operationalMode;
+            if (this.pendingMission == null) {
+                this.operationalMode = operationalMode;
+            } else if (!"IDLE".equals(operationalMode)) {
+                // Allow non-IDLE modes (MOVING, PICKING, etc.) to update even with pending mission
+                this.operationalMode = operationalMode;
+            }
+            // If pendingMission is set and telemetry says IDLE, keep the current mode
+        }
+        // Clear pending mission only when robot reports IDLE and has no pending mission
+        // (prevents premature clearing)
+        if ("IDLE".equals(operationalMode) && this.pendingMission == null) {
+            // Mission already consumed or cleared — nothing to do
         }
     }
 

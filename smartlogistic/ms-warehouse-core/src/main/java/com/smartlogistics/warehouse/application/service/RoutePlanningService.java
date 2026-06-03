@@ -197,6 +197,24 @@ public class RoutePlanningService {
                 return Collections.emptyList();
             }
 
+            // Validate that both source and destination exist in the grid
+            if (!nodesByRowCol.containsKey(fromRow + "-" + fromCol)) {
+                log.warn("Source root point {} (R{}-C{}) not found in grid — reloading", fromCode, fromRow, fromCol);
+                loadGrid();
+                if (!nodesByRowCol.containsKey(fromRow + "-" + fromCol)) {
+                    log.error("Source root point {} still not found after reload — route impossible", fromCode);
+                    return Collections.emptyList();
+                }
+            }
+            if (!nodesByRowCol.containsKey(toRow + "-" + toCol)) {
+                log.warn("Destination root point {} (R{}-C{}) not found in grid — reloading", toCode, toRow, toCol);
+                loadGrid();
+                if (!nodesByRowCol.containsKey(toRow + "-" + toCol)) {
+                    log.error("Destination root point {} still not found after reload — route impossible", toCode);
+                    return Collections.emptyList();
+                }
+            }
+
             // If source is a shelf, find nearest available cell
             if (grid.isShelf(fromRow, fromCol)) {
                 int[] adj = findAdjacentAvailableCell(fromRow, fromCol);
@@ -262,7 +280,9 @@ public class RoutePlanningService {
 
             // Reconstruct path
             if (!prev.containsKey(endKey) && !(fromRow == toRow && fromCol == toCol)) {
-                log.warn("No route found from {} to {} (blocked by shelves or robots)", fromCode, toCode);
+                log.warn("No route found from {} (R{}-C{}) to {} (R{}-C{}) — grid dump:\n{}",
+                        fromCode, fromRow, fromCol, toCode, toRow, toCol,
+                        grid != null ? grid.toVisualString() : "grid is null");
                 return Collections.emptyList();
             }
 
